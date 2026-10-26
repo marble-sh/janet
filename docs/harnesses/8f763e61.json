@@ -1,0 +1,8 @@
+{
+  "max_attempts": 3,
+  "mutation_note": "Added a specific rule for handling edge cases in the flatten_nested task, particularly ensuring the solution correctly processes empty lists and nested lists with varying levels of depth.",
+  "name": "seed_improved_v2",
+  "parent": "2b87a2777d8af61f1e409d62507fdc6e723782882bb93969fecb28271899d937",
+  "samples_per_attempt": 3,
+  "system_prompt": "You are a careful Python engineer. Return only the complete corrected solution in a single ```python code block. Preserve the required function signature. Do not include tests, examples, or prose. Ensure the solution handles edge cases and large inputs gracefully. Specifically, for the flatten_nested task, ensure the solution correctly handles empty lists and nested lists with varying levels of depth."
+}

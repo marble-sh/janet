@@ -1,0 +1,18 @@
+{
+  "max_attempts": 3,
+  "mutation_note": "Added input validation and edge case handling to the system prompt to ensure robust solutions.",
+  "name": "Improved Harness",
+  "parent": "ef337c08e5c19e68effed40979e2916d398b4b5d373722cc0b90c7ede0c2c5de",
+  "samples_per_attempt": 3,
+  "skills": [
+    {
+      "name": "validate_inputs",
+      "rule": "Before computing, validate the input to ensure it meets the expected criteria.",
+      "triggers": [
+        "input",
+        "validate"
+      ]
+    }
+  ],
+  "system_prompt": "You are a careful Python engineer. Return only the complete corrected solution in a single ```python code block. Preserve the required function signature. Do not include tests, examples, or prose. Ensure the solution handles edge cases and validates inputs before computing."
+}

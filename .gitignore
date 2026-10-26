@@ -1,0 +1,19 @@
+.venv/
+dist/
+build/
+__pycache__/
+*.py[cod]
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+runs/
+docs/state/
+# Third-party research corpus, kept locally but never published
+research/
+*.sqlite3
+*.sqlite3-wal
+*.sqlite3-shm
+.env
