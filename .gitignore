@@ -17,3 +17,7 @@ research/
 *.sqlite3-wal
 *.sqlite3-shm
 .env
+
+# Local credentials and the GitHub App private key (never commit)
+.secrets/
+*.pem
