@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-_FENCE = re.compile(r"```(?:python|py)?[ \t]*\n(.*?)```", re.DOTALL | re.IGNORECASE)
+_FENCE = re.compile(r"```(?:python3?|py)?[ \t]*\n(.*?)```", re.DOTALL | re.IGNORECASE)
 
 
 def extract_python(text: str) -> str:
