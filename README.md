@@ -67,6 +67,13 @@ Selection is Pareto: dev must not regress, and the candidate must improve dev
 or tie dev while improving the hidden anchor. The best verified variant is
 archived but not promoted by default (`loop.promote = false`).
 
+## Publishing
+
+Janet submits committed work as bot-authored pull requests through the trusted
+`janet-publish` entry point. The publisher refuses protected paths, never
+pushes `main`, and never merges. See
+[`docs/publishing.md`](docs/publishing.md).
+
 ## Passive background daemon
 
 When the machine is idle, Janet can improve herself in the background. A session
