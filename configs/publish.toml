@@ -1,0 +1,13 @@
+# GitHub App used by `janet publish`.
+#
+# The app ID and installation ID are public identifiers. The private key is
+# never committed; its path points at a gitignored local file. Environment
+# variables override every value here.
+
+[github_app]
+repo = "marble-sh/janet"
+app_id = 5480729
+installation_id = 175567250
+private_key_path = ".secrets/github-app.pem"
+author_name = "Janet"
+base_branch = "main"
