@@ -1,6 +1,6 @@
 # Plan — publishing Janet safely — 2026-10-26
 
-**Status:** P2 implemented on a review branch (2026-10-26). The GitHub App `janet-could-you-please` is installed; the publisher awaits human review and merge.
+**Status:** COMPLETE 2026-10-26. P2 merged in PR #1; the first real publication (PR #2, docs) merged; release `v0.5.0`.
 
 ## Goal
 
@@ -16,8 +16,8 @@ while preserving the project's safety kernel: **no unverified variant reaches
 - GitHub App: `janet-could-you-please` (ID 5480729), installation 175567250, installed on this repository only.
 - App permissions: `contents: write`, `pull_requests: write`, `metadata: read`, `checks: read`. No administration, workflows, secrets, or actions.
 - Private key: `.secrets/github-app.pem` (mode 600, gitignored).
-- Publisher: `src/janet/github_app.py` and `src/janet/publish.py`, exposed as `janet publish`.
-- Local gate: 434 tests, 86.29% coverage, ruff/mypy/build green.
+- Publisher: `src/janet/github_app.py` and `src/janet/publish.py`, exposed as `janet publish` and the trusted `janet-publish`.
+- Local gate: 436 tests, 86.40% coverage, ruff/mypy/build green.
 - The third-party `research/` corpus is local-only and gitignored.
 - README image removed at user request; no image asset is tracked.
 
@@ -49,7 +49,7 @@ to approve her own changes.
 - Local CI green: 404 tests, 87.48% coverage, ruff/mypy/build pass.
 - `main` pushed as a fresh history; old tags discarded.
 
-### P2 — `janet publish` — IMPLEMENTED 2026-10-26
+### P2 — `janet publish` — DONE 2026-10-26
 
 The publisher is host-side and refuses unless:
 
@@ -82,7 +82,7 @@ a separate environment and run the dedicated entry point:
 ```bash
 uv venv ~/.local/share/janet-publisher
 uv pip install --python ~/.local/share/janet-publisher/bin/python \
-  "git+https://github.com/marble-sh/janet@<tag>"
+  "git+https://github.com/marble-sh/janet@v0.5.0"
 ~/.local/share/janet-publisher/bin/janet-publish \
   --config ~/.config/janet/publish.toml --root /path/to/janet
 ```

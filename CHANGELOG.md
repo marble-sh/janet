@@ -5,7 +5,25 @@ All notable changes to this project are documented here.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased]
+## [0.5.0] - 2026-10-26
+
+### Added
+
+- **Trusted GitHub App publisher:** `janet-publish` submits committed work as a
+  bot-authored pull request. It squashes the feature diff, pushes
+  `janet/auto-<sha>`, and opens a PR as `janet-could-you-please[bot]`; it never
+  pushes `main` or merges.
+- **Protected surface and secret scan:** the publisher refuses changes to CI,
+  tests, dependencies, the verifier, governor, sandbox, archive, selection loop,
+  and the publisher itself. Changed paths are read NUL-delimited; the secret
+  scan blocks token and private-key patterns.
+- **Trusted entry point:** `janet publish` refuses to run from the candidate
+  checkout; `janet-publish` is the supported entry point.
+- **CI and branch protection:** GitHub Actions runs the full gate; `main`
+  requires the `test` check, a PR, a code-owner review, and approval of the
+  latest push.
+- **License:** 0BSD.
+- **Architecture docs:** `docs/how-janet-learns.md` and `docs/publishing.md`.
 
 ### Changed
 

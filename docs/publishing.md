@@ -12,7 +12,7 @@ a separate environment and use `janet-publish`:
 ```bash
 uv venv ~/.local/share/janet-publisher
 uv pip install --python ~/.local/share/janet-publisher/bin/python \
-  "git+https://github.com/marble-sh/janet@<tag>"
+  "git+https://github.com/marble-sh/janet@v0.5.0"
 ```
 
 For a local checkout during development:
