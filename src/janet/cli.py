@@ -34,6 +34,7 @@ from janet.eval.evolve import apply_evolved
 from janet.eval.judge import build_samples, calibrate
 from janet.eval.repair import RepairAttempt
 from janet.eval.task import TaskError, load_suite, select_tasks
+from janet.github_app import GitHubAppError, load_app_config
 from janet.governor import GovernorError, ResourceGovernor
 from janet.harness.archive import Archive, ArchiveError
 from janet.harness.bandit import BanditState, format_bandit
@@ -50,6 +51,7 @@ from janet.probe import (
     compute_budget,
     probe_machine,
 )
+from janet.publish import PublishError, publish
 from janet.sandbox import Sandbox, SandboxError
 from janet.suites import load_dev_suite, load_fresh, load_suites
 
@@ -173,6 +175,18 @@ def _parser() -> argparse.ArgumentParser:
     bench_repair.add_argument("--samples", type=int, default=2)
     bench_repair.add_argument("--no-compare", action="store_true")
     bench_sub.add_parser("tasks", help="list the seed tasks")
+
+    publish_cmd = subparsers.add_parser(
+        "publish",
+        help="publish committed work as a bot-authored pull request (trusted install)",
+    )
+    publish_cmd.add_argument(
+        "--config", default=None, help="publish config (default: configs/publish.toml)"
+    )
+    publish_cmd.add_argument("--root", default=None, help="repository root (default: cwd)")
+    publish_cmd.add_argument("--title", default=None)
+    publish_cmd.add_argument("--body", default=None)
+    publish_cmd.add_argument("--dry-run", action="store_true")
 
     return parser
 
@@ -682,6 +696,25 @@ def _cmd_bench(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_publish(args: argparse.Namespace) -> int:
+    app_config = load_app_config(Path(args.config) if args.config else None)
+    root = Path(args.root).expanduser() if args.root else Path.cwd()
+
+    def progress(message: str) -> None:
+        print(f"[publish] {message}", file=sys.stderr, flush=True)
+
+    result = publish(
+        root,
+        app_config,
+        title=args.title,
+        body=args.body,
+        dry_run=args.dry_run,
+        progress=progress,
+    )
+    print(json.dumps(result.to_dict(), indent=2))
+    return 0 if result.ok else 1
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = _parser()
     args = parser.parse_args(argv)
@@ -704,6 +737,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_archive(args)
         if args.command == "bench":
             return _cmd_bench(args)
+        if args.command == "publish":
+            return _cmd_publish(args)
         parser.error(f"unknown command: {args.command}")
     except Preempted:
         print("preempted", file=sys.stderr)
@@ -718,6 +753,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         ArchiveError,
         LoopError,
         DaemonError,
+        GitHubAppError,
+        PublishError,
     ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2
