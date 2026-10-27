@@ -111,7 +111,7 @@ def test_bench_materialize_writes_and_verifies(
     )
     payload = parse_json_output(capsys.readouterr().out)
     assert payload["manifest_ok"] is True
-    assert payload["task_count"] == 22
+    assert payload["task_count"] == 26
     assert (root / "manifest.json").is_file()
 
 

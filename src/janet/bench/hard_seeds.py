@@ -29,6 +29,7 @@ def _task(
     reference: str,
     visible: tuple[CaseSeed, ...],
     anchor: tuple[CaseSeed, ...],
+    difficulty: int = 3,
 ) -> TaskSeed:
     return TaskSeed(
         id=id,
@@ -40,7 +41,7 @@ def _task(
         reference=reference,
         visible=visible,
         anchor=anchor,
-        difficulty=3,
+        difficulty=difficulty,
         timeout_s=20.0,
     )
 
@@ -429,6 +430,10 @@ def topo_sort(n, edges):
             _c([]),
             _c([4]),
             _c([1, 2, 3, 6, 5, 4]),
+            _c([1, 2, 2, 3]),
+            _c([2, 1, 2]),
+            _c([1, 1, 1]),
+            _c([2, 3, 1, 3]),
         ),
     ),
     _task(
@@ -590,6 +595,13 @@ def json_path_get(obj, path):
             _c([4, 3, 2], [5, 4, 3], 5),
             _c([3, 4, 5], [4, 5, 6], 0),
             _c([1, 3, 4, 5], [1, 4, 5, 7], 7),
+            _c([1, 1, 1], [2, 2, 2], 2),
+            _c([1, 2, 3], [3, 3, 3], 3),
+            _c([2, 3], [4, 5], 1),
+            _c([1, 2], [1, 100], 2),
+            _c([1, 1], [1, 1], 0),
+            _c([1, 2, 2], [2, 3, 3], 4),
+            _c([1, 1, 1], [1, 1, 1], 3),
         ),
     ),
     _task(
@@ -768,6 +780,12 @@ def stock_report(events):
             _c([["in", "a", 3], ["in", "b", 2], ["out", "a", 3], ["out", "b", 5]]),
             _c([["in", "a", 3], ["bogus", "a", 1]], err="ValueError"),
             _c([]),
+            _c([["in", "a", -1]], err="ValueError"),
+            _c([["in", "a", 1.5]], err="ValueError"),
+            _c([["in", "a", True]], err="ValueError"),
+            _c([["adjust", "a", 0], ["out", "a", 2]]),
+            _c([["out", "a", 2], ["out", "a", 3]]),
+            _c([["in", "a", 2], ["adjust", "a", 0], ["in", "a", 1]]),
         ),
     ),
     _task(
@@ -882,6 +900,248 @@ def min_window(s, t):
             _c("hello world", "lo w"),
         ),
     ),
+    _task(
+        "apply_patch",
+        "Apply sequential line hunks",
+        "Implement apply_patch(lines, hunks). Each hunk is [start, remove, add]. "
+        "Apply hunks in order to the evolving list: at 0-based index start, the "
+        "slice must equal the remove list, which is replaced by the add list. "
+        "start may equal the current length when remove is empty (append). Raise "
+        "ValueError for a malformed hunk, an out-of-range start, or a context "
+        "mismatch. Return the final list.",
+        "apply_patch",
+        _stub("apply_patch", "lines, hunks"),
+        r"""def apply_patch(lines, hunks):
+    result = list(lines)
+    for hunk in hunks:
+        if not isinstance(hunk, (list, tuple)) or len(hunk) != 3:
+            raise ValueError("each hunk must be [start, remove, add]")
+        start, remove, add = hunk
+        if not isinstance(start, int) or isinstance(start, bool):
+            raise ValueError("start must be an integer")
+        if not isinstance(remove, list) or not isinstance(add, list):
+            raise ValueError("remove and add must be lists")
+        if start < 0 or start + len(remove) > len(result):
+            raise ValueError("hunk out of range")
+        if result[start : start + len(remove)] != remove:
+            raise ValueError("context mismatch")
+        result[start : start + len(remove)] = add
+    return result
+""",
+        (
+            _c(["a", "b", "c"], [[1, ["b"], ["B", "B2"]]]),
+            _c([], [[0, [], ["x"]]]),
+            _c(["a", "b"], [[0, ["a"], []]]),
+        ),
+        (
+            _c(["a", "b", "c"], [[1, ["b"], ["X"]], [2, ["c"], ["Y", "Z"]]]),
+            _c(["a"], [[1, [], ["tail"]]]),
+            _c(["a", "b", "c"], [[1, ["b"], []]]),
+            _c(["a", "b"], [[0, ["b"], ["c"]]], err="ValueError"),
+            _c(["a"], [[2, [], ["x"]]], err="ValueError"),
+            _c(["a"], [[0, ["a"], ["b"]], [0, ["b"], ["c"]]]),
+            _c(["a"], [[True, [], ["x"]]], err="ValueError"),
+            _c(["a"], [["0", [], ["x"]]], err="ValueError"),
+            _c(["a"], [[0, "a", ["x"]]], err="ValueError"),
+            _c(["a"], [[0, ["a"]]], err="ValueError"),
+            _c(["a", "b"], [[-1, [], ["x"]]], err="ValueError"),
+            _c(["a", "b"], [[2, [], ["x"]]]),
+            _c([], [[0, ["x"], ["y"]]], err="ValueError"),
+        ),
+        difficulty=5,
+    ),
+    _task(
+        "ledger_replay",
+        "Idempotent ledger with rollback",
+        "Implement ledger_replay(events). Events are lists: ['credit', txn, "
+        "account, amount], ['debit', txn, account, amount], or ['rollback', txn]. "
+        "Replay in order and return {account: balance} for non-zero balances, "
+        "sorted by account. amount must be a positive integer. A repeated txn is "
+        "idempotent: an identical credit or debit is ignored, a conflicting one "
+        "raises ValueError. A debit, or a rollback, that would make an account "
+        "negative raises ValueError. Rolling back an unknown or already-rolled-"
+        "back txn raises ValueError. Malformed events raise ValueError.",
+        "ledger_replay",
+        _stub("ledger_replay", "events"),
+        r"""def ledger_replay(events):
+    balances = {}
+    applied = {}
+    rolled = set()
+    for event in events:
+        if not isinstance(event, (list, tuple)) or not event:
+            raise ValueError("invalid event")
+        op = event[0]
+        if op == "rollback":
+            if len(event) != 2 or not isinstance(event[1], str):
+                raise ValueError("invalid rollback")
+            txn = event[1]
+            if txn not in applied or txn in rolled:
+                raise ValueError("unknown or already rolled back transaction")
+            account, signed = applied[txn]
+            if balances.get(account, 0) - signed < 0:
+                raise ValueError("rollback would overdraw")
+            balances[account] -= signed
+            rolled.add(txn)
+            continue
+        if op not in ("credit", "debit") or len(event) != 4:
+            raise ValueError("invalid event")
+        _, txn, account, amount = event
+        if not isinstance(txn, str) or not isinstance(account, str):
+            raise ValueError("invalid identifiers")
+        if not isinstance(amount, int) or isinstance(amount, bool) or amount <= 0:
+            raise ValueError("invalid amount")
+        signed = amount if op == "credit" else -amount
+        if txn in applied:
+            if applied[txn] != (account, signed):
+                raise ValueError("conflicting duplicate transaction")
+            continue
+        if signed < 0 and balances.get(account, 0) + signed < 0:
+            raise ValueError("insufficient funds")
+        balances[account] = balances.get(account, 0) + signed
+        applied[txn] = (account, signed)
+    return {
+        account: balances[account]
+        for account in sorted(balances)
+        if balances[account] != 0
+    }
+""",
+        (
+            _c([["credit", "t1", "a", 100], ["debit", "t2", "a", 30]]),
+            _c([["credit", "t1", "a", 100], ["rollback", "t1"]]),
+            _c([]),
+        ),
+        (
+            _c([["credit", "t1", "a", 100], ["credit", "t1", "a", 100]]),
+            _c([["credit", "t1", "a", 100], ["debit", "t2", "a", 30], ["rollback", "t2"]]),
+            _c([["credit", "t1", "b", 5], ["credit", "t2", "a", 7]]),
+            _c([["credit", "t1", "a", 100], ["debit", "t1", "a", 10]], err="ValueError"),
+            _c([["debit", "t1", "a", 10]], err="ValueError"),
+            _c([["rollback", "missing"]], err="ValueError"),
+            _c(
+                [["credit", "t1", "a", 100], ["debit", "t2", "a", 80], ["rollback", "t1"]],
+                err="ValueError",
+            ),
+            _c([["credit", "t1", "a", 0]], err="ValueError"),
+            _c(
+                [["credit", "t1", "a", 10], ["rollback", "t1"], ["rollback", "t1"]],
+                err="ValueError",
+            ),
+            _c(
+                [["credit", "t1", "a", 100], ["debit", "t2", "a", 10], ["debit", "t2", "a", 20]],
+                err="ValueError",
+            ),
+            _c([["credit", "t1", "a", 100], ["debit", "t2", "a", 10], ["debit", "t2", "a", 10]]),
+            _c([["credit", "t1", "a", 5], ["debit", "t2", "a", 5]]),
+            _c([["credit", "t1", "a"]], err="ValueError"),
+            _c([["credit", "t1", 7, 10]], err="ValueError"),
+            _c([["credit", "t1", "a", True]], err="ValueError"),
+            _c([["rollback"]], err="ValueError"),
+        ),
+        difficulty=5,
+    ),
+    _task(
+        "deep_merge_patch",
+        "Recursive merge patch with deletion",
+        "Implement deep_merge_patch(base, patch). A dict patch merges into a dict "
+        "base recursively; when base is not a dict, merging starts from an empty "
+        "dict. A non-dict patch replaces the value. The single-key object "
+        "{'__delete__': true} removes the key. Any other dict, including one that "
+        "contains '__delete__' alongside other keys, is ordinary data. Return a "
+        "new value; do not mutate the inputs.",
+        "deep_merge_patch",
+        _stub("deep_merge_patch", "base, patch"),
+        r"""def deep_merge_patch(base, patch):
+    if not isinstance(patch, dict):
+        return patch
+    result = dict(base) if isinstance(base, dict) else {}
+    for key, value in patch.items():
+        if isinstance(value, dict) and value == {"__delete__": True}:
+            result.pop(key, None)
+        elif isinstance(value, dict):
+            result[key] = deep_merge_patch(result.get(key), value)
+        else:
+            result[key] = value
+    return result
+""",
+        (
+            _c({"a": 1}, {"b": 2}),
+            _c({"a": {"b": 1}}, {"a": {"c": 2}}),
+            _c({"a": 1}, {"a": {"__delete__": True}}),
+        ),
+        (
+            _c({"a": {"b": 1}}, {"a": {"b": {"__delete__": True}}}),
+            _c({"a": 1}, {"a": [1, 2]}),
+            _c(5, {"a": 1}),
+            _c({"a": 1}, {"a": {"__delete__": True, "x": 2}}),
+            _c({"a": 1}, 7),
+            _c({"a": {"b": 1}}, {"a": 5}),
+            _c({"a": 1}, {"b": {"__delete__": True}}),
+            _c({"a": 1}, {"b": {"__delete__": False}}),
+            _c({"a": 1}, {}),
+            _c({"a": 5}, {"a": {"b": 1}}),
+            _c([1, 2], {"a": 1}),
+            _c({"a": {"b": {"c": 1}}}, {"a": {"b": {"d": 2}}}),
+            _c({"a": {"b": 1, "c": 2}}, {"a": {"b": {"__delete__": True}}}),
+        ),
+        difficulty=5,
+    ),
+    _task(
+        "batch_topological_order",
+        "Parallel topological batches",
+        "Implement batch_topological_order(edges). Each edge is [node, dependency], "
+        "meaning the dependency must be scheduled before the node. Return a list "
+        "of batches; each batch is the lexicographically sorted list of nodes "
+        "whose dependencies are all in earlier batches. Process as many nodes as "
+        "possible per batch. Include nodes that appear only as dependencies. "
+        "Raise ValueError for a malformed edge or a cycle. Duplicate edges are "
+        "harmless.",
+        "batch_topological_order",
+        _stub("batch_topological_order", "edges"),
+        r"""def batch_topological_order(edges):
+    deps = {}
+    nodes = set()
+    for edge in edges:
+        if not isinstance(edge, (list, tuple)) or len(edge) != 2:
+            raise ValueError("each edge must be [node, dependency]")
+        node, dependency = edge
+        if not isinstance(node, str) or not isinstance(dependency, str):
+            raise ValueError("nodes must be strings")
+        nodes.add(node)
+        nodes.add(dependency)
+        deps.setdefault(node, set()).add(dependency)
+    for node in nodes:
+        deps.setdefault(node, set())
+    batches = []
+    remaining = set(nodes)
+    while remaining:
+        ready = sorted(node for node in remaining if not (deps[node] & remaining))
+        if not ready:
+            raise ValueError("cycle detected")
+        batches.append(ready)
+        remaining.difference_update(ready)
+    return batches
+""",
+        (
+            _c([["b", "a"], ["c", "a"], ["d", "b"]]),
+            _c([]),
+            _c([["b", "a"], ["b", "a"]]),
+        ),
+        (
+            _c([["d", "b"], ["d", "c"], ["b", "a"], ["c", "a"]]),
+            _c([["b", "a"], ["d", "c"]]),
+            _c([["a", "b"], ["b", "a"]], err="ValueError"),
+            _c([["a", "a"]], err="ValueError"),
+            _c([["b", "a", "extra"]], err="ValueError"),
+            _c([["b", "a"], ["c", "a"], ["d", "b"], ["e", "d"]]),
+            _c([["b", "a"], ["c", "b"], ["d", "c"]]),
+            _c([["a", "b"], ["b", "c"], ["c", "a"]], err="ValueError"),
+            _c([["c", "z"]]),
+            _c([["d", "a"], ["c", "a"], ["b", "a"]]),
+            _c([[1, "a"]], err="ValueError"),
+            _c([["a"]], err="ValueError"),
+        ),
+        difficulty=5,
+    ),
 )
 
 # Stratified assignment from the measured one-shot baseline in
@@ -907,6 +1167,11 @@ _SPLIT: dict[str, str] = {
     "max_circular_sum": "fresh",
     "min_window_substr": "anchor",
     "stock_report": "dev",
+    # W1 calibration (2026-10-27): difficulty-5 dev tasks, measured one-shot.
+    "apply_patch": "dev",
+    "ledger_replay": "dev",
+    "deep_merge_patch": "dev",
+    "batch_topological_order": "dev",
 }
 
 

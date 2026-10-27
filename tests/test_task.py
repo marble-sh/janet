@@ -17,11 +17,11 @@ from janet.eval.task import TaskError, load_cases, load_suite, load_task
 
 def test_materialize_dev_suite(tmp_path: Path) -> None:
     result = materialize(tmp_path / "dev", "dev", force=True)
-    assert result.task_count == 22  # 14 easy + 8 headroom
+    assert result.task_count == 26  # 14 easy + 12 headroom
     assert len(SEEDS) == 27
-    assert len(ALL_SEEDS) == 51
+    assert len(ALL_SEEDS) == 55
     tasks = load_suite(result.root, "dev")
-    assert len(tasks) == 22
+    assert len(tasks) == 26
     assert all(task.split == "dev" for task in tasks)
     ids = {task.id for task in tasks}
     assert "clamp_value" in ids
@@ -45,7 +45,7 @@ def test_anchor_only_tasks_never_reach_the_dev_split(tmp_path: Path) -> None:
     assert held_out.isdisjoint(dev)
     assert held_out <= anchor
     assert dev <= anchor
-    assert len(anchor) == 37
+    assert len(anchor) == 41
 
 
 def test_fresh_split_is_disjoint_from_dev_and_anchor(tmp_path: Path) -> None:
@@ -211,12 +211,12 @@ def test_expected_values_are_json_serializable(tmp_path: Path) -> None:
 def test_headroom_family_is_stratified_across_splits(tmp_path: Path) -> None:
     from janet.bench.hard_seeds import all_hard_seeds, hard_seeds
 
-    assert len(all_hard_seeds()) == len(hard_seeds()) == 18
+    assert len(all_hard_seeds()) == len(hard_seeds()) == 22
     splits = {"dev": 0, "anchor": 0, "fresh": 0}
     for seed in hard_seeds():
-        assert seed.difficulty == 3
+        assert seed.difficulty >= 3
         splits["fresh" if seed.fresh_only else "anchor" if seed.anchor_only else "dev"] += 1
-    assert splits == {"dev": 6, "anchor": 6, "fresh": 6}
+    assert splits == {"dev": 10, "anchor": 6, "fresh": 6}
 
 
 def test_select_tasks_keeps_integrity_and_filters_easy(tmp_path: Path) -> None:
