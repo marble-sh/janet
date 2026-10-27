@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import json
+import random
+import re
 import sqlite3
 import subprocess
 from dataclasses import dataclass
@@ -28,17 +30,29 @@ class HarnessRecord:
     status: str
     created_at: str
     details: dict[str, Any]
+    operator: str | None = None
+    parent2_hash: str | None = None
+    cost: float = 0.0
+    novelty: float = 0.0
+    coverage_cell: str | None = None
+    frontier_status: str = "none"
 
     def to_dict(self) -> dict[str, object]:
         return {
             "hash": self.hash,
             "name": self.name,
             "parent_hash": self.parent_hash,
+            "parent2_hash": self.parent2_hash,
             "dev_score": self.dev_score,
             "anchor_score": self.anchor_score,
             "status": self.status,
             "created_at": self.created_at,
             "mutation_note": self.spec.mutation_note,
+            "operator": self.operator,
+            "cost": round(self.cost, 3),
+            "novelty": round(self.novelty, 6),
+            "coverage_cell": self.coverage_cell,
+            "frontier_status": self.frontier_status,
         }
 
 
@@ -56,6 +70,17 @@ CREATE TABLE IF NOT EXISTS variants (
 );
 """
 
+_EXTRA_COLUMNS = (
+    ("operator", "TEXT"),
+    ("parent2_hash", "TEXT"),
+    ("cost", "REAL"),
+    ("novelty", "REAL"),
+    ("coverage_cell", "TEXT"),
+    ("frontier_status", "TEXT"),
+)
+_TOKEN_RE = re.compile(r"[a-z0-9_]{3,}")
+_ELIGIBLE = "(status IN ('accepted', 'promoted') OR parent_hash IS NULL)"
+
 
 class Archive:
     def __init__(self, root: Path) -> None:
@@ -68,8 +93,17 @@ class Archive:
         self._conn.row_factory = sqlite3.Row
         self._conn.execute("PRAGMA journal_mode=WAL")
         self._conn.executescript(_SCHEMA)
+        self._migrate()
         self._conn.commit()
         self._init_git()
+        self._refresh_frontier()
+        self._conn.commit()
+
+    def _migrate(self) -> None:
+        columns = {str(row["name"]) for row in self._conn.execute("PRAGMA table_info(variants)")}
+        for name, kind in _EXTRA_COLUMNS:
+            if name not in columns:
+                self._conn.execute(f"ALTER TABLE variants ADD COLUMN {name} {kind}")
 
     def _init_git(self) -> None:
         if not (self.repo_dir / ".git").exists():
@@ -114,8 +148,15 @@ class Archive:
         dev_score: float | None,
         anchor_score: float | None,
         details: dict[str, Any] | None = None,
+        operator: str | None = None,
+        parent2_hash: str | None = None,
+        cost: float = 0.0,
+        coverage_cell: str | None = None,
     ) -> str:
         spec.validate()
+        if cost < 0.0:
+            raise ArchiveError("cost must be >= 0")
+        novelty = self._novelty(spec)
         variant_dir = self.repo_dir / spec.hash
         variant_dir.mkdir(exist_ok=True)
         (variant_dir / "harness.json").write_text(spec.to_json(), encoding="utf-8")
@@ -126,12 +167,18 @@ class Archive:
             """
             INSERT INTO variants
                 (hash, name, parent_hash, spec_json, dev_score, anchor_score, status,
-                 created_at, details_json)
-            VALUES (?, ?, ?, ?, ?, ?, 'candidate', ?, ?)
+                 created_at, details_json, operator, parent2_hash, cost, novelty,
+                 coverage_cell, frontier_status)
+            VALUES (?, ?, ?, ?, ?, ?, 'candidate', ?, ?, ?, ?, ?, ?, ?, 'none')
             ON CONFLICT(hash) DO UPDATE SET
                 dev_score = excluded.dev_score,
                 anchor_score = excluded.anchor_score,
-                details_json = excluded.details_json
+                details_json = excluded.details_json,
+                operator = excluded.operator,
+                parent2_hash = excluded.parent2_hash,
+                cost = excluded.cost,
+                novelty = excluded.novelty,
+                coverage_cell = excluded.coverage_cell
             """,
             (
                 spec.hash,
@@ -142,8 +189,14 @@ class Archive:
                 anchor_score,
                 now,
                 json.dumps(details or {}, sort_keys=True, default=str),
+                operator,
+                parent2_hash,
+                cost,
+                novelty,
+                coverage_cell,
             ),
         )
+        self._refresh_frontier()
         self._conn.commit()
         return spec.hash
 
@@ -193,8 +246,79 @@ class Archive:
             self._conn.execute(
                 "UPDATE variants SET status = 'accepted' WHERE hash = ?", (variant_hash,)
             )
+            self._refresh_frontier()
             self._conn.commit()
         return self.get(variant_hash) or record
+
+    def frontier(self) -> tuple[HarnessRecord, ...]:
+        """One elite per occupied MAP-Elites cell, strongest capability first."""
+
+        rows = self._conn.execute(
+            "SELECT * FROM variants WHERE frontier_status = 'elite' "
+            "ORDER BY anchor_score DESC, dev_score DESC, hash ASC"
+        ).fetchall()
+        return tuple(self._record(row) for row in rows)
+
+    def select_parent(self, generation: int, *, explore_ratio: float = 0.3) -> HarnessRecord | None:
+        """Pick a parent from the frontier: exploit the best cells, or explore.
+
+        Deterministic for a given generation: the same archive and generation
+        always select the same parent, which keeps replay and tests honest.
+        """
+
+        if not 0.0 <= explore_ratio <= 1.0:
+            raise ArchiveError("explore_ratio must be in [0, 1]")
+        elites = self.frontier()
+        if not elites:
+            return self.current() or self.seed()
+        rng = random.Random(generation)
+        if rng.random() >= explore_ratio:
+            top = sorted(elites, key=self._capability, reverse=True)[:3]
+            return rng.choice(top)
+        weights = [max(0.01, record.novelty) for record in elites]
+        return rng.choices(elites, weights=weights, k=1)[0]
+
+    def _refresh_frontier(self) -> None:
+        rows = self._conn.execute(f"SELECT * FROM variants WHERE {_ELIGIBLE}").fetchall()
+        groups: dict[str, list[HarnessRecord]] = {}
+        for row in rows:
+            record = self._record(row)
+            groups.setdefault(record.coverage_cell or "unknown", []).append(record)
+        elite = {max(members, key=self._capability).hash for members in groups.values()}
+        self._conn.execute("UPDATE variants SET frontier_status = 'none'")
+        for variant_hash in sorted(elite):
+            self._conn.execute(
+                "UPDATE variants SET frontier_status = 'elite' WHERE hash = ?",
+                (variant_hash,),
+            )
+        for members in groups.values():
+            for record in members:
+                if record.hash not in elite:
+                    self._conn.execute(
+                        "UPDATE variants SET frontier_status = 'member' WHERE hash = ?",
+                        (record.hash,),
+                    )
+
+    @staticmethod
+    def _capability(record: HarnessRecord) -> tuple[float, float, float, str]:
+        anchor = record.anchor_score if record.anchor_score is not None else -1.0
+        dev = record.dev_score if record.dev_score is not None else -1.0
+        return (anchor, dev, record.novelty, record.created_at)
+
+    def _novelty(self, spec: HarnessSpec) -> float:
+        """1 - the closest token Jaccard to any existing variant."""
+
+        tokens = _spec_tokens(spec)
+        similarities: list[float] = []
+        for row in self._conn.execute("SELECT spec_json FROM variants"):
+            try:
+                other = HarnessSpec.from_dict(json.loads(str(row["spec_json"])))
+            except (json.JSONDecodeError, ValueError):
+                continue
+            if other.hash == spec.hash:
+                continue
+            similarities.append(_jaccard(tokens, _spec_tokens(other)))
+        return 1.0 - max(similarities) if similarities else 1.0
 
     def heldout_points(self) -> list[tuple[float, float]]:
         """(dev, held-out anchor) per evaluated variant, oldest first."""
@@ -238,6 +362,7 @@ class Archive:
         self._conn.execute(
             "UPDATE variants SET status = 'promoted' WHERE hash = ?", (variant_hash,)
         )
+        self._refresh_frontier()
         self._conn.commit()
         current = self.repo_dir / "current.json"
         current.write_text(record.spec.to_json(), encoding="utf-8")
@@ -273,6 +398,7 @@ class Archive:
                 variant_hash,
             ),
         )
+        self._refresh_frontier()
         self._conn.commit()
         updated = self.get(variant_hash)
         if updated is None:  # pragma: no cover - defensive
@@ -292,11 +418,20 @@ class Archive:
         dev_score: float,
         anchor_score: float | None,
         details: dict[str, Any] | None = None,
+        coverage_cell: str | None = None,
+        cost: float = 0.0,
     ) -> HarnessRecord:
         record = self.get(spec.hash)
         if record is not None:
             return record
-        self.add(spec, dev_score=dev_score, anchor_score=anchor_score, details=details)
+        self.add(
+            spec,
+            dev_score=dev_score,
+            anchor_score=anchor_score,
+            details=details,
+            coverage_cell=coverage_cell,
+            cost=cost,
+        )
         created = self.get(spec.hash)
         if created is None:  # pragma: no cover - defensive
             raise ArchiveError("failed to create the seed record")
@@ -314,4 +449,24 @@ class Archive:
             status=str(row["status"]),
             created_at=str(row["created_at"]),
             details=json.loads(str(row["details_json"] or "{}")),
+            operator=str(row["operator"]) if row["operator"] is not None else None,
+            parent2_hash=str(row["parent2_hash"]) if row["parent2_hash"] is not None else None,
+            cost=float(row["cost"]) if row["cost"] is not None else 0.0,
+            novelty=float(row["novelty"]) if row["novelty"] is not None else 0.0,
+            coverage_cell=(str(row["coverage_cell"]) if row["coverage_cell"] is not None else None),
+            frontier_status=str(row["frontier_status"] or "none"),
         )
+
+
+def _jaccard(left: frozenset[str], right: frozenset[str]) -> float:
+    union = left | right
+    if not union:
+        return 0.0
+    return len(left & right) / len(union)
+
+
+def _spec_tokens(spec: HarnessSpec) -> frozenset[str]:
+    parts = [spec.system_prompt]
+    for skill in spec.skills:
+        parts.extend((skill.name, *skill.triggers, skill.rule))
+    return frozenset(_TOKEN_RE.findall("\n".join(parts).lower()))

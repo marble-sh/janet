@@ -125,6 +125,12 @@ def test_run_generation_promotes_an_improvement(tmp_path: Path, budget: Budget) 
         best = archive.best()
         assert best is not None
         assert best.hash == result.candidate_hash
+        record = archive.get(result.candidate_hash)
+        assert record is not None
+        assert record.operator == "prompt"
+        assert record.coverage_cell is not None
+        assert record.frontier_status == "elite"
+        assert record.cost > 0.0
         rolled = archive.rollback()
         assert rolled is not None
         assert rolled.system_prompt == _MUTATION_PROMPT

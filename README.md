@@ -26,8 +26,10 @@ near-duplicates, promotes well-supported lessons to skill candidates, retires
 stale or failing skills, and enforces the store caps. A `headroom` task family
 restores difficulty to the dev/anchor/fresh splits. P6 has started: six scoped
 operator arms (prompt, skill add, skill revise, budget, memory policy, prompt +
-skill) share a cost-aware reward v3. P5's amnesia test and the P6 frontier and
-e-process gate are next. See
+skill) share a cost-aware reward v3. The archive now keeps a MAP-Elites frontier
+(best variant per weakest-family × difficulty × cost cell) and selects parents
+70% exploit / 30% explore by novelty. P5's amnesia test and the P6 e-process
+gate are next. See
 [`docs/plans/plan-rsi-janet-2026-10-23.md`](docs/plans/plan-rsi-janet-2026-10-23.md)
 and [`docs/plans/plan-p5-p6-2026-10-26.md`](docs/plans/plan-p5-p6-2026-10-26.md).
 

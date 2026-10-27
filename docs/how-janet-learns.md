@@ -99,7 +99,7 @@ from it. Persistence happens in the outer loop.
 
 ```mermaid
 flowchart TD
-    A["Current parent notebook"] --> B["Bandit picks a kind of edit"]
+    A["Frontier elite (exploit or explore)"] --> B["Bandit picks a kind of edit"]
     B --> C["Local model proposes exactly one edit"]
     C --> D{"Valid and actually changed?"}
     D -->|no| C
@@ -115,8 +115,10 @@ flowchart TD
 
 In plain words (`src/janet/loop/generation.py`):
 
-- **Parent** = the latest accepted notebook. The archive calls this a greedy
-  hill-climb: lineage moves forward only on verified improvement.
+- **Parent** = one of the frontier elites. The archive keeps the best variant
+  per `task_family × difficulty_bucket × cost_bucket` cell; each generation
+  picks a parent 70% by exploit (top capability) and 30% by explore (novelty),
+  so separate weaknesses stay alive instead of collapsing into one lineage.
 - **Idea** = the local model proposes one scoped change: rewrite the prompt,
   add a skill, revise a skill, change the budget, change the memory policy, or
   prompt + skill together. The proposer may not exceed its chosen arm, and the
@@ -288,6 +290,7 @@ What is built versus planned:
 | P5.3 deterministic retrieval (BM25, caps, token budget, guard, logging) | |
 | P5.4 consolidation (dedupe, promote, retire, cap; daemon job) | |
 | P6.1 six operator arms + cost-aware reward v3 | |
+| P6.2 MAP-Elites frontier + novelty parent selection | |
 | Headroom task family + `janet bench headroom` gate | |
 
 The next lever is not "run more generations". It is a harder benchmark with

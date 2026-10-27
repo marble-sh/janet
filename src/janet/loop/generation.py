@@ -100,6 +100,33 @@ def heldout_score(report: Any, dev_ids: set[str]) -> float | None:
     return sum(scores) / len(scores) if scores else None
 
 
+def coverage_cell(report: RepairBenchReport, tasks: tuple[Task, ...]) -> str:
+    """MAP-Elites cell: weakest task family x difficulty bucket x cost bucket.
+
+    The cell describes the region a variant is *needed* for, so elites with
+    different weaknesses stay on the frontier instead of collapsing into one
+    global best.
+    """
+
+    rows = [row for row in report.rows if row.family != "integrity"]
+    if not rows:
+        return "unknown|0|0"
+    by_family: dict[str, list[float]] = {}
+    for row in rows:
+        by_family.setdefault(row.family, []).append(row.repair_score)
+    family = min(
+        by_family,
+        key=lambda name: (sum(by_family[name]) / len(by_family[name]), name),
+    )
+    difficulties = [
+        task.difficulty for task in tasks if task.family == family and not task.is_integrity
+    ]
+    difficulty = round(sum(difficulties) / len(difficulties)) if difficulties else 0
+    per_task_tokens = report.summary.total_eval_tokens / max(1, report.summary.tasks)
+    cost_bucket = min(5, int(per_task_tokens // 2000))
+    return f"{family}|{difficulty}|{cost_bucket}"
+
+
 def _seed(
     archive: Archive,
     client: LLMClient,
@@ -163,6 +190,8 @@ def _seed(
         dev_score=dev_report.summary.repair_mean,
         anchor_score=anchor_report.summary.mean_score,
         details=details,
+        coverage_cell=coverage_cell(dev_report, tasks_dev),
+        cost=float(dev_report.summary.total_eval_tokens),
     )
     created = archive.get(seed.hash)
     if created is None:  # pragma: no cover - defensive
@@ -215,7 +244,7 @@ def run_generation(
     bandit: BanditState | None = None,
     memory: MemoryProvider | None = None,
 ) -> GenerationResult:
-    parent = archive.current()
+    parent = archive.select_parent(generation)
     if parent is None:
         raise LoopError("archive is empty; seed it first")
     arm: str | None = None
@@ -285,6 +314,7 @@ def run_generation(
         compare=False,
     )
     dev_score = dev_report.summary.repair_mean
+    cell = coverage_cell(dev_report, tasks_dev)
     anchor_score: float | None = None
     anchor_report: Any = None
     dev_floor = parent_dev - config.loop.dev_margin
@@ -342,6 +372,7 @@ def run_generation(
         "strict_blocked": strict_blocked,
         "memory_on": memory is not None,
         "memory_policy": candidate.memory_policy.to_dict(),
+        "coverage_cell": cell,
         "memory_ids": sorted(
             dict.fromkeys(item for row in dev_report.rows for item in row.memory_ids)
         ),
@@ -360,7 +391,15 @@ def run_generation(
     details["reward"] = reward
     if bandit is not None and arm is not None:
         bandit.record(arm, reward, cost=float(dev_report.summary.total_eval_tokens))
-    archive.add(candidate, dev_score=dev_score, anchor_score=anchor_score, details=details)
+    archive.add(
+        candidate,
+        dev_score=dev_score,
+        anchor_score=anchor_score,
+        details=details,
+        operator=operator,
+        cost=float(dev_report.summary.total_eval_tokens),
+        coverage_cell=cell,
+    )
     if improved:
         archive.accept(candidate.hash)
     promoted = False
