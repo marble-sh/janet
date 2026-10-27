@@ -28,8 +28,10 @@ restores difficulty to the dev/anchor/fresh splits. P6 has started: six scoped
 operator arms (prompt, skill add, skill revise, budget, memory policy, prompt +
 skill) share a cost-aware reward v3. The archive now keeps a MAP-Elites frontier
 (best variant per weakest-family × difficulty × cost cell) and selects parents
-70% exploit / 30% explore by novelty. P5's amnesia test and the P6 e-process
-gate are next. See
+70% exploit / 30% explore by novelty. An opt-in paired statistical gate
+(exact sign test or e-process with geometric alpha spending) can require
+positive evidence before acceptance, and fresh confirmations now report their
+own release test. P5's amnesia test is next, then the meta dashboard. See
 [`docs/plans/plan-rsi-janet-2026-10-23.md`](docs/plans/plan-rsi-janet-2026-10-23.md)
 and [`docs/plans/plan-p5-p6-2026-10-26.md`](docs/plans/plan-p5-p6-2026-10-26.md).
 

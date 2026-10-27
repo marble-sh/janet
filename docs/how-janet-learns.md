@@ -132,7 +132,12 @@ In plain words (`src/janet/loop/generation.py`):
 - **Gate**: accept if dev improved and the anchor did not regress, **or** the
   anchor improved while dev stayed within a small noise allowance
   (`loop.dev_margin`, default 0.03). If dev falls outside the margin, the anchor
-  is not measured and the candidate is rejected.
+  is not measured and the candidate is rejected. With
+  `loop.statistical_gate = true`, acceptance additionally needs paired evidence
+  on the same dev tasks: an exact sign-test p-value at or below `alpha_g`, or an
+  e-value at or above `1/alpha_g` under a geometric alpha-spending schedule.
+  Ties are not evidence, and the certificate is bound to the dev-suite
+  fingerprint.
 - **Memory**: every variant goes into SQLite plus a nested git repo
   (`src/janet/harness/archive.py`). Accepted variants form the lineage; rejected
   ones remain in the record.
@@ -291,6 +296,7 @@ What is built versus planned:
 | P5.4 consolidation (dedupe, promote, retire, cap; daemon job) | |
 | P6.1 six operator arms + cost-aware reward v3 | |
 | P6.2 MAP-Elites frontier + novelty parent selection | |
+| P6.3 paired sign test / e-process gate + fresh release report (opt-in) | |
 | Headroom task family + `janet bench headroom` gate | |
 
 The next lever is not "run more generations". It is a harder benchmark with

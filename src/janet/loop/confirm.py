@@ -13,6 +13,7 @@ from pathlib import Path
 
 from janet.bench.baseline import run_baseline
 from janet.config import Config
+from janet.eval.stats import PairedTest, paired_test
 from janet.eval.task import Task
 from janet.governor import ResourceGovernor
 from janet.harness.archive import Archive, ArchiveError
@@ -30,6 +31,7 @@ class Confirmation:
     seed_passed: int
     variant_passed: int
     per_task: tuple[tuple[str, float, float], ...]
+    release: PairedTest
 
     @property
     def delta(self) -> float:
@@ -49,6 +51,7 @@ class Confirmation:
                 {"task": task, "seed": round(seed, 4), "variant": round(variant, 4)}
                 for task, seed, variant in self.per_task
             ],
+            "release": self.release.to_dict(),
         }
 
 
@@ -88,6 +91,13 @@ def confirm_variant(
     per_task = tuple(
         (task_id, seed_rows[task_id], variant_rows[task_id]) for task_id in sorted(seed_rows)
     )
+    release = paired_test(
+        tuple(seed for _, seed, _ in per_task),
+        tuple(variant for _, _, variant in per_task),
+        alpha=config.loop.alpha_total,
+        resamples=config.loop.bootstrap_resamples,
+        seed=0,
+    )
     return Confirmation(
         variant_hash=variant.hash,
         seed_hash=seed.hash,
@@ -97,4 +107,5 @@ def confirm_variant(
         seed_passed=reports["seed"].summary.passed,
         variant_passed=reports["variant"].summary.passed,
         per_task=per_task,
+        release=release,
     )

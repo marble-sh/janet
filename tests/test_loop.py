@@ -68,7 +68,7 @@ class FakeLoopClient:
         )
 
 
-def _config(tmp_path: Path, *, promote: bool) -> Config:
+def _config(tmp_path: Path, *, promote: bool, **loop: Any) -> Config:
     return Config(
         paths=PathsConfig(
             runs=tmp_path / "runs",
@@ -78,7 +78,7 @@ def _config(tmp_path: Path, *, promote: bool) -> Config:
             anchor=tmp_path / "anchor",
             bandit=tmp_path / "runs" / "bandit.json",
         ),
-        loop=LoopConfig(promote=promote),
+        loop=LoopConfig(promote=promote, **loop),
     )
 
 
@@ -216,6 +216,35 @@ def test_run_loop_seeds_and_runs(tmp_path: Path, budget: Budget) -> None:
         bandit = BanditState.load(config.paths.bandit)
         assert sum(stats.pulls for stats in bandit.arms.values()) == 1
         assert results[0].bandit_arm == "prompt"
+    finally:
+        archive.close()
+
+
+def test_statistical_gate_blocks_weak_paired_evidence(tmp_path: Path, budget: Budget) -> None:
+    dev_task, anchor_task = _tasks(tmp_path)
+    config = _config(tmp_path, promote=False, statistical_gate=True)
+    archive = Archive(config.paths.archive)
+    try:
+        archive.ensure_seed(SEED_HARNESS, dev_score=0.0, anchor_score=0.0)
+        result = run_generation(
+            archive,
+            cast(LLMClient, FakeLoopClient(reference_for(dev_task))),
+            ResourceGovernor(budget),
+            config,
+            tmp_path / "run",
+            (dev_task,),
+            (anchor_task,),
+            generation=1,
+            limit=1,
+        )
+        assert result.dev_score == result.parent_dev  # one tied task is not evidence
+        assert result.statistical_blocked
+        assert not result.improved
+        record = archive.get(result.candidate_hash or "")
+        assert record is not None
+        assert record.details["statistical_blocked"] is True
+        assert record.details["paired_test"]["wins"] == 0
+        assert record.details["evidence_certificate"]["target"] == "dev"
     finally:
         archive.close()
 

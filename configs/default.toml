@@ -98,3 +98,9 @@ dev_margin = 0.03
 min_difficulty = 3
 # UCB1 exploration constant for the P6 operator bandit.
 bandit_exploration = 0.7
+
+# P6.3 paired evidence (off until the benchmark has enough headroom).
+statistical_gate = false
+alpha_total = 0.05
+alpha_decay = 0.5
+bootstrap_resamples = 2000

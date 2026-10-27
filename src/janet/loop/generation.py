@@ -23,6 +23,7 @@ from janet.bench.baseline import run_baseline
 from janet.bench.repair_bench import RepairBenchReport, run_repair_benchmark
 from janet.config import Config
 from janet.eval.prompts import MemoryProvider
+from janet.eval.stats import AlphaSpending, PairedTest, certify, paired_test
 from janet.eval.task import Task
 from janet.events import EventLog
 from janet.governor import ResourceGovernor
@@ -57,6 +58,7 @@ class GenerationResult:
     parent_heldout: float | None = None
     operator: str | None = None
     strict_blocked: bool = False
+    statistical_blocked: bool = False
     bandit_arm: str | None = None
     reward: float | None = None
 
@@ -75,6 +77,7 @@ class GenerationResult:
             "promoted": self.promoted,
             "operator": self.operator,
             "strict_blocked": self.strict_blocked,
+            "statistical_blocked": self.statistical_blocked,
             "bandit_arm": self.bandit_arm,
             "reward": self.reward,
             "error": self.error,
@@ -125,6 +128,22 @@ def coverage_cell(report: RepairBenchReport, tasks: tuple[Task, ...]) -> str:
     per_task_tokens = report.summary.total_eval_tokens / max(1, report.summary.tasks)
     cost_bucket = min(5, int(per_task_tokens // 2000))
     return f"{family}|{difficulty}|{cost_bucket}"
+
+
+def paired_scores(
+    parent_report: RepairBenchReport, candidate_report: RepairBenchReport
+) -> tuple[tuple[float, ...], tuple[float, ...]] | None:
+    """Per-task repair scores aligned by task id, or None when nothing is shared."""
+
+    parent = {row.task_id: row.repair_score for row in parent_report.rows}
+    candidate = {row.task_id: row.repair_score for row in candidate_report.rows}
+    shared = sorted(parent.keys() & candidate.keys())
+    if not shared:
+        return None
+    return (
+        tuple(parent[task_id] for task_id in shared),
+        tuple(candidate[task_id] for task_id in shared),
+    )
 
 
 def _seed(
@@ -243,6 +262,7 @@ def run_generation(
     stop: StopCheck | None = None,
     bandit: BanditState | None = None,
     memory: MemoryProvider | None = None,
+    alpha_horizon: int | None = None,
 ) -> GenerationResult:
     parent = archive.select_parent(generation)
     if parent is None:
@@ -357,6 +377,34 @@ def run_generation(
         # Decoupling was flagged: dev alone no longer earns acceptance.
         improved = False
         strict_blocked = True
+    paired = paired_scores(parent_report, dev_report)
+    evidence: PairedTest | None = None
+    if paired is not None:
+        alpha = AlphaSpending(
+            horizon=alpha_horizon or config.loop.max_generations,
+            alpha_total=config.loop.alpha_total,
+            decay=config.loop.alpha_decay,
+        ).alpha(generation)
+        evidence = paired_test(
+            *paired,
+            alpha=alpha,
+            resamples=config.loop.bootstrap_resamples,
+            seed=generation,
+        )
+    statistical_blocked = False
+    if improved and config.loop.statistical_gate and (evidence is None or not evidence.accepted):
+        improved = False
+        statistical_blocked = True
+    certificate = (
+        certify(
+            evidence,
+            target="dev",
+            verifier_version=dev_suite or "seed",
+            generation=generation,
+        ).to_dict()
+        if evidence is not None
+        else None
+    )
     details: dict[str, Any] = {
         "dev": dev_report.to_dict(),
         "anchor": anchor_report.to_dict() if anchor_report is not None else None,
@@ -370,6 +418,9 @@ def run_generation(
         "anchor_heldout": heldout,
         "parent_heldout": parent_heldout,
         "strict_blocked": strict_blocked,
+        "statistical_blocked": statistical_blocked,
+        "paired_test": evidence.to_dict() if evidence is not None else None,
+        "evidence_certificate": certificate,
         "memory_on": memory is not None,
         "memory_policy": candidate.memory_policy.to_dict(),
         "coverage_cell": cell,
@@ -384,7 +435,7 @@ def run_generation(
         parent_anchor=parent_anchor,
         heldout_score=heldout,
         parent_heldout=parent_heldout,
-        strict_blocked=strict_blocked,
+        strict_blocked=strict_blocked or statistical_blocked,
         cost=float(dev_report.summary.total_eval_tokens),
         parent_cost=float(parent_report.summary.total_eval_tokens),
     )
@@ -420,6 +471,7 @@ def run_generation(
         promoted=promoted,
         operator=operator,
         strict_blocked=strict_blocked,
+        statistical_blocked=statistical_blocked,
         bandit_arm=arm,
         reward=reward,
         error=None,
@@ -439,6 +491,7 @@ def run_loop(
     dev_suite: str = "",
     stop: StopCheck | None = None,
     memory: MemoryProvider | None = None,
+    alpha_horizon: int | None = None,
 ) -> tuple[GenerationResult, ...]:
     if generations < 1:
         raise LoopError("generations must be >= 1")
@@ -493,6 +546,7 @@ def run_loop(
                 stop=stop,
                 bandit=bandit,
                 memory=memory,
+                alpha_horizon=alpha_horizon or generations,
             )
             bandit.save(config.paths.bandit.expanduser())
             results.append(result)

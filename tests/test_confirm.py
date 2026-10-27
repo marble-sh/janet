@@ -83,6 +83,10 @@ def test_confirm_measures_variant_against_seed(tmp_path: Path, budget: Budget) -
         payload = result.to_dict()
         assert payload["delta"] == 1.0
         assert len(cast(list[Any], payload["per_task"])) == 2
+        assert result.release.n == 2
+        assert result.release.wins == 2
+        assert result.release.decision == "reject"  # two pairs are not enough evidence
+        assert cast(dict[str, Any], payload["release"])["wins"] == 2
     finally:
         archive.close()
 

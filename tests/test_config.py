@@ -109,6 +109,16 @@ def test_spike_gpu_must_cover_soft_gpu() -> None:
         _validate_budget(BudgetConfig(gpu_fraction=0.5, spike_gpu_fraction=0.4))
 
 
+def test_invalid_alpha_values_are_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text("[loop]\nalpha_total = 1.5\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="alpha_total"):
+        load_config(path)
+    path.write_text("[loop]\nbootstrap_resamples = 0\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="bootstrap_resamples"):
+        load_config(path)
+
+
 def test_memory_defaults_are_off() -> None:
     config = load_config()
     assert config.memory.enabled is False

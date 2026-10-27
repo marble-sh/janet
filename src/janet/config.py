@@ -86,6 +86,11 @@ class LoopConfig:
     min_difficulty: int = 3
     # UCB1 exploration constant for the P6 operator bandit.
     bandit_exploration: float = 0.7
+    # P6.3 paired evidence. Off until the benchmark supplies enough paired tasks.
+    statistical_gate: bool = False
+    alpha_total: float = 0.05
+    alpha_decay: float = 0.5
+    bootstrap_resamples: int = 2000
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,6 +253,12 @@ def _build_loop(raw: dict[str, Any]) -> LoopConfig:
         raise ConfigError("loop.dev_margin must be in [0, 0.1]")
     if config.bandit_exploration < 0.0:
         raise ConfigError("loop.bandit_exploration must be >= 0")
+    if not 0.0 < config.alpha_total < 1.0:
+        raise ConfigError("loop.alpha_total must be in (0, 1)")
+    if not 0.0 < config.alpha_decay <= 1.0:
+        raise ConfigError("loop.alpha_decay must be in (0, 1]")
+    if config.bootstrap_resamples < 1:
+        raise ConfigError("loop.bootstrap_resamples must be >= 1")
     return config
 
 
