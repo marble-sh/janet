@@ -215,6 +215,27 @@ def test_list_evidence_rejects_an_unknown_subject(memory: ProcessMemory) -> None
         memory.list_evidence("skill", "missing")
 
 
+def test_retrieval_summary_reports_hit_rate(memory: ProcessMemory) -> None:
+    lesson_id = _lesson(memory)
+    memory.set_status("lesson", lesson_id, "verified")
+    memory.record_retrieval(
+        "lesson",
+        lesson_id,
+        task_id="parse_duration",
+        task_family="code_repair",
+        query="timeout",
+        score=0.5,
+        rank=0,
+    )
+    assert memory.retrieval_summary() == {
+        "events": 1,
+        "distinct_subjects": 1,
+        "hit_rate": 1.0,
+    }
+    memory.set_status("lesson", lesson_id, "retired")
+    assert memory.retrieval_summary()["hit_rate"] == 0.0
+
+
 def test_family_outcomes_are_recorded_per_family(memory: ProcessMemory) -> None:
     lesson_id = _lesson(memory)
     memory.record_outcome("lesson", lesson_id, success=True, task_family="code_repair")

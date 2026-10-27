@@ -87,6 +87,10 @@ def test_confirm_measures_variant_against_seed(tmp_path: Path, budget: Budget) -
         assert result.release.wins == 2
         assert result.release.decision == "reject"  # two pairs are not enough evidence
         assert cast(dict[str, Any], payload["release"])["wins"] == 2
+        record = archive.get(variant.hash)
+        assert record is not None
+        assert record.details["fresh"]["delta"] == 1.0
+        assert record.details["fresh"]["release"]["decision"] == "reject"
     finally:
         archive.close()
 

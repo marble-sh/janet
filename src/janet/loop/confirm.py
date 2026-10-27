@@ -98,7 +98,7 @@ def confirm_variant(
         resamples=config.loop.bootstrap_resamples,
         seed=0,
     )
-    return Confirmation(
+    confirmation = Confirmation(
         variant_hash=variant.hash,
         seed_hash=seed.hash,
         tasks=len(per_task),
@@ -109,3 +109,5 @@ def confirm_variant(
         per_task=per_task,
         release=release,
     )
+    archive.record_confirmation(variant.hash, confirmation.to_dict())
+    return confirmation

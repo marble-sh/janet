@@ -33,7 +33,10 @@ skill) share a cost-aware reward v3. The archive now keeps a MAP-Elites frontier
 positive evidence before acceptance, and fresh confirmations now report their
 own release test. A baseline-referenced CUSUM watches `dev - heldout` beside
 the Spearman check, and a synthetic stale-objective probe reports detection
-latency. P5's amnesia test is next, then the meta dashboard. See
+latency. `janet report --meta` writes a read-only JSON/Markdown dashboard
+(capability, meta-slope with bootstrap CI, transfer, diversity, integrity,
+cost, bandit, and memory). P5's amnesia test is next, then the two
+10-generation confirmations. See
 [`docs/plans/plan-rsi-janet-2026-10-23.md`](docs/plans/plan-rsi-janet-2026-10-23.md)
 and [`docs/plans/plan-p5-p6-2026-10-26.md`](docs/plans/plan-p5-p6-2026-10-26.md).
 
@@ -50,6 +53,7 @@ uv run janet bench baseline --limit 4
 uv run janet bench repair --limit 4 --attempts 3 --samples 3
 uv run janet memory stats
 uv run janet memory consolidate
+uv run janet report --meta
 ```
 
 ## Recursive loop

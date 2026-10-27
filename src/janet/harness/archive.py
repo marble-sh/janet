@@ -405,6 +405,23 @@ class Archive:
             raise ArchiveError("variant vanished during update")
         return updated
 
+    def record_confirmation(self, variant_hash: str, payload: dict[str, Any]) -> HarnessRecord:
+        """Attach a fresh-split confirmation to the variant for reporting."""
+
+        record = self.get(variant_hash)
+        if record is None:
+            raise ArchiveError(f"unknown variant: {variant_hash}")
+        details = {**record.details, "fresh": payload}
+        self._conn.execute(
+            "UPDATE variants SET details_json = ? WHERE hash = ?",
+            (json.dumps(details, sort_keys=True, default=str), variant_hash),
+        )
+        self._conn.commit()
+        updated = self.get(variant_hash)
+        if updated is None:  # pragma: no cover - defensive
+            raise ArchiveError("variant vanished during update")
+        return updated
+
     def rollback(self) -> HarnessSpec | None:
         current = self.repo_dir / "current.json"
         if not current.is_file():

@@ -157,6 +157,13 @@ alone cannot pass. A synthetic stale-objective probe reports CUSUM detection
 latency and whether the loop would switch to strict mode; it is an experiment,
 never a selection signal.
 
+**The meta report** is read-only: `janet report --meta` writes `report.json` and
+`report.md` under `runs/report-<stamp>/` with capability and improvement rate
+per generation, a Theil-Sen meta-slope with a bootstrap CI, the latest fresh
+transfer, MAP-Elites coverage and operator mix, integrity abstention, p95 wall
+and token cost, per-arm pulls and cost, memory status, and the stale-objective
+probe.
+
 **Process memory (P5, off by default)** lives in `runs/memory.sqlite3`. With
 `janet run --memory on`, each dev task retrieves at most three verified skills
 and five verified lessons, ranked by BM25, success rate, recency, and trigger
@@ -290,12 +297,12 @@ What is built versus planned:
 | Built | Planned (P6/P5) |
 |---|---|
 | Paired Pareto gate, hidden anchor, fresh confirmation | Fresh-task rotation |
-| Archive + git lineage, human promotion | Stale-objective probe |
-| Anti-hard-coding guard, inert-skill check | Meta-slope with bootstrap CI |
-| Mutation-kill evaluator evolution | Bandit metrics in the report |
-| Advisory judge calibration | P5 amnesia test |
-| UCB1 operator bandit, reward v2 | |
-| Decoupling detector | |
+| Archive + git lineage, human promotion | P5 amnesia test |
+| Anti-hard-coding guard, inert-skill check | |
+| Mutation-kill evaluator evolution | |
+| Advisory judge calibration | |
+| UCB1 operator bandit, cost-aware reward v3 | |
+| Spearman decoupling + CUSUM drift detection | |
 | Idle daemon with bounded, preemptible ladder | |
 | P5.1 process-memory store (SQLite + FTS5, provenance, retrieval log) | |
 | P5.2 admission gates (task-name, unsafe-text, inert/generic triggers, tests) | |
@@ -305,6 +312,7 @@ What is built versus planned:
 | P6.2 MAP-Elites frontier + novelty parent selection | |
 | P6.3 paired sign test / e-process gate + fresh release report (opt-in) | |
 | P6.4 CUSUM drift detector + stale-objective probe | |
+| P6.5 meta report (capability, slope + CI, diversity, integrity, cost) | |
 | Headroom task family + `janet bench headroom` gate | |
 
 The next lever is not "run more generations". It is a harder benchmark with

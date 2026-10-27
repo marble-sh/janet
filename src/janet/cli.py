@@ -62,6 +62,7 @@ from janet.probe import (
     probe_machine,
 )
 from janet.publish import PublishError, publish
+from janet.report import build_meta_report, render_markdown, write_report
 from janet.sandbox import Sandbox, SandboxError
 from janet.suites import load_dev_suite, load_fresh, load_suites
 
@@ -232,6 +233,14 @@ def _parser() -> argparse.ArgumentParser:
     publish_cmd.add_argument("--title", default=None)
     publish_cmd.add_argument("--body", default=None)
     publish_cmd.add_argument("--dry-run", action="store_true")
+
+    report_cmd = subparsers.add_parser(
+        "report", help="meta report over the archive, bandit, and memory"
+    )
+    report_cmd.add_argument("--meta", action="store_true", help="meta metrics (the default)")
+    report_cmd.add_argument("--config", default=None)
+    report_cmd.add_argument("--json", action="store_true", dest="as_json")
+    report_cmd.add_argument("--out", default=None, help="output directory")
 
     return parser
 
@@ -902,6 +911,24 @@ def _status_counts(counts: object) -> str:
     return " ".join(f"{status}={count}" for status, count in sorted(counts.items()))
 
 
+def _cmd_report(args: argparse.Namespace) -> int:
+    config = _load(args.config)
+    report = build_meta_report(config)
+    directory = (
+        Path(args.out).expanduser()
+        if args.out
+        else config.paths.runs.expanduser() / _run_id("report", None)
+    )
+    json_path, markdown_path = write_report(report, directory)
+    if args.as_json:
+        print(json.dumps(report.to_dict(), indent=2, default=str))
+    else:
+        print(render_markdown(report))
+    print(f"json: {json_path}", file=sys.stderr)
+    print(f"markdown: {markdown_path}", file=sys.stderr)
+    return 0
+
+
 def _cmd_publish(args: argparse.Namespace) -> int:
     app_config = load_app_config(Path(args.config) if args.config else None)
     root = Path(args.root).expanduser() if args.root else Path.cwd()
@@ -947,6 +974,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_memory(args)
         if args.command == "publish":
             return _cmd_publish(args)
+        if args.command == "report":
+            return _cmd_report(args)
         parser.error(f"unknown command: {args.command}")
     except Preempted:
         print("preempted", file=sys.stderr)

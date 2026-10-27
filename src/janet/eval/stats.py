@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 import random
+import statistics
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
@@ -61,6 +62,52 @@ def bootstrap_ci(
     low = _percentile(means, alpha / 2.0)
     high = _percentile(means, 1.0 - alpha / 2.0)
     return (low, high)
+
+
+def theil_sen(xs: Sequence[float], ys: Sequence[float]) -> float | None:
+    """Median of pairwise slopes; None when undefined."""
+
+    if len(xs) != len(ys):
+        raise StatsError("xs and ys must have the same length")
+    slopes = [
+        (ys[j] - ys[i]) / (xs[j] - xs[i])
+        for i in range(len(xs))
+        for j in range(i + 1, len(xs))
+        if abs(xs[j] - xs[i]) > _TIE_EPSILON
+    ]
+    return float(statistics.median(slopes)) if slopes else None
+
+
+def bootstrap_slope_ci(
+    xs: Sequence[float],
+    ys: Sequence[float],
+    *,
+    resamples: int = 2000,
+    alpha: float = 0.05,
+    seed: int = 0,
+) -> tuple[float, float] | None:
+    """Percentile bootstrap CI for a Theil-Sen slope; None with <3 points."""
+
+    if len(xs) != len(ys):
+        raise StatsError("xs and ys must have the same length")
+    if len(xs) < 3:
+        return None
+    if not 0.0 < alpha < 1.0:
+        raise StatsError("alpha must be in (0, 1)")
+    if resamples < 1:
+        raise StatsError("resamples must be >= 1")
+    rng = random.Random(seed)
+    count = len(xs)
+    slopes: list[float] = []
+    for _ in range(resamples):
+        indices = [rng.randrange(count) for _ in range(count)]
+        slope = theil_sen([xs[i] for i in indices], [ys[i] for i in indices])
+        if slope is not None:
+            slopes.append(slope)
+    if not slopes:
+        return None
+    slopes.sort()
+    return (_percentile(slopes, alpha / 2.0), _percentile(slopes, 1.0 - alpha / 2.0))
 
 
 def sign_test_p(wins: int, losses: int) -> float:
@@ -238,8 +285,10 @@ __all__ = [
     "PairedTest",
     "StatsError",
     "bootstrap_ci",
+    "bootstrap_slope_ci",
     "certify",
     "e_value",
     "paired_test",
     "sign_test_p",
+    "theil_sen",
 ]

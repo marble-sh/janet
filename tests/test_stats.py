@@ -6,10 +6,12 @@ from janet.eval.stats import (
     AlphaSpending,
     StatsError,
     bootstrap_ci,
+    bootstrap_slope_ci,
     certify,
     e_value,
     paired_test,
     sign_test_p,
+    theil_sen,
 )
 
 
@@ -85,6 +87,22 @@ def test_paired_inputs_are_validated() -> None:
         paired_test([], [], alpha=0.05)
     with pytest.raises(StatsError, match="alpha"):
         paired_test([1.0], [1.0], alpha=1.0)
+
+
+def test_theil_sen_recovers_a_known_slope() -> None:
+    xs = [1.0, 2.0, 3.0, 4.0, 5.0]
+    ys = [3.0, 5.0, 7.0, 9.0, 11.0]
+    assert theil_sen(xs, ys) == pytest.approx(2.0)
+    interval = bootstrap_slope_ci(xs, ys, resamples=200, seed=0)
+    assert interval is not None
+    assert interval[0] <= 2.0 <= interval[1]
+
+
+def test_slope_needs_enough_points() -> None:
+    assert theil_sen([1.0], [1.0]) is None
+    assert bootstrap_slope_ci([1.0, 2.0], [1.0, 2.0], resamples=10) is None
+    with pytest.raises(StatsError, match="same length"):
+        theil_sen([1.0], [1.0, 2.0])
 
 
 def test_certificate_is_bound_to_target_and_verifier() -> None:

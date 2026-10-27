@@ -850,6 +850,32 @@ class ProcessMemory:
             "ok": integrity == "ok" and all(entry["ok"] for entry in indexes.values()),
         }
 
+    def retrieval_summary(self) -> dict[str, Any]:
+        """Retrieval volume and the share of retrieved entries still verified."""
+
+        row = self._conn.execute(
+            """
+            SELECT COUNT(*) AS n,
+                   COUNT(DISTINCT subject_kind || ':' || subject_id) AS subjects,
+                   COALESCE(SUM(
+                       CASE WHEN
+                         (subject_kind = 'lesson' AND subject_id IN
+                            (SELECT CAST(id AS TEXT) FROM lessons WHERE status = 'verified'))
+                         OR (subject_kind = 'skill' AND subject_id IN
+                            (SELECT id FROM skills WHERE status = 'verified'))
+                       THEN 1 ELSE 0 END
+                   ), 0) AS verified
+            FROM retrieval_events
+            """
+        ).fetchone()
+        events = int(row["n"]) if row is not None else 0
+        verified = int(row["verified"]) if row is not None else 0
+        return {
+            "events": events,
+            "distinct_subjects": int(row["subjects"]) if row is not None else 0,
+            "hit_rate": (verified / events) if events else None,
+        }
+
     # ---- internals ---------------------------------------------------
 
     @staticmethod
