@@ -17,11 +17,11 @@ from janet.eval.task import TaskError, load_cases, load_suite, load_task
 
 def test_materialize_dev_suite(tmp_path: Path) -> None:
     result = materialize(tmp_path / "dev", "dev", force=True)
-    assert result.task_count == 20  # 14 easy + 6 headroom
+    assert result.task_count == 22  # 14 easy + 8 headroom
     assert len(SEEDS) == 27
-    assert len(ALL_SEEDS) == 45
+    assert len(ALL_SEEDS) == 51
     tasks = load_suite(result.root, "dev")
-    assert len(tasks) == 20
+    assert len(tasks) == 22
     assert all(task.split == "dev" for task in tasks)
     ids = {task.id for task in tasks}
     assert "clamp_value" in ids
@@ -41,11 +41,11 @@ def test_anchor_only_tasks_never_reach_the_dev_split(tmp_path: Path) -> None:
         task.id for task in load_suite(materialize(tmp_path / "anchor", "anchor").root, "anchor")
     }
     held_out = {seed.id for seed in ALL_SEEDS if seed.anchor_only}
-    assert len(held_out) == 13  # 7 easy + 6 headroom
+    assert len(held_out) == 15  # 7 easy + 8 headroom
     assert held_out.isdisjoint(dev)
     assert held_out <= anchor
     assert dev <= anchor
-    assert len(anchor) == 33
+    assert len(anchor) == 37
 
 
 def test_fresh_split_is_disjoint_from_dev_and_anchor(tmp_path: Path) -> None:
@@ -54,7 +54,7 @@ def test_fresh_split_is_disjoint_from_dev_and_anchor(tmp_path: Path) -> None:
     fresh_result = materialize(tmp_path / "f", "fresh")
     fresh_tasks = load_suite(fresh_result.root, "fresh")
     fresh = {t.id for t in fresh_tasks}
-    assert fresh_result.task_count == len(fresh) == 12
+    assert fresh_result.task_count == len(fresh) == 14
     assert fresh.isdisjoint(dev | anchor)
     assert all(t.split == "fresh" and not t.is_integrity for t in fresh_tasks)
     assert all(t.hidden_cases and not t.visible_cases for t in fresh_tasks)

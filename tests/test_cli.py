@@ -9,6 +9,7 @@ import pytest
 from janet.bench.seeds import SEEDS
 from janet.cli import main
 from janet.llm import LLMResponse
+from janet.memory import ProcessMemory
 
 
 def parse_json_output(output: str) -> dict[str, Any]:
@@ -109,8 +110,67 @@ def test_bench_materialize_writes_and_verifies(
     )
     payload = parse_json_output(capsys.readouterr().out)
     assert payload["manifest_ok"] is True
-    assert payload["task_count"] == 20
+    assert payload["task_count"] == 22
     assert (root / "manifest.json").is_file()
+
+
+def test_bench_headroom_reports_hard_tasks(capsys: pytest.CaptureFixture[str]) -> None:
+    assert main(["bench", "headroom", "--json"]) == 0
+    payload = parse_json_output(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["dev_hard"] >= 2
+    assert payload["anchor_hard"] >= 4
+    assert payload["fresh_hard"] >= 2
+    assert "headroom" in payload["hard_families"]
+
+
+def _memory_config(tmp_path: Path) -> Path:
+    config = tmp_path / "config.toml"
+    config.write_text(
+        f"[paths]\nmemory = {json.dumps(str(tmp_path / 'memory.sqlite3'))}\n",
+        encoding="utf-8",
+    )
+    return config
+
+
+def _seed_memory(path: Path) -> None:
+    with ProcessMemory(path) as store:
+        lesson_id = store.add_lesson(
+            task_id="parse_duration",
+            task_family="code_repair",
+            failure_signature="timeout on invalid suffix",
+            trigger_terms="duration timeout suffix",
+            rule="Validate the suffix before multiplying the numeric value.",
+            patch_summary="Reject an unknown duration suffix.",
+            provenance={"run": "run-1"},
+        )
+        store.set_status("lesson", lesson_id, "verified")
+
+
+def test_memory_stats_and_verify(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    config = _memory_config(tmp_path)
+    _seed_memory(tmp_path / "memory.sqlite3")
+    assert main(["memory", "stats", "--config", str(config)]) == 0
+    out = capsys.readouterr().out
+    assert "verified=1" in out
+    assert "evidence: 0" in out
+    assert main(["memory", "verify", "--config", str(config), "--json"]) == 0
+    payload = parse_json_output(capsys.readouterr().out)
+    assert payload["ok"] is True
+    assert payload["integrity"] == "ok"
+
+
+def test_memory_list_and_search(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    config = _memory_config(tmp_path)
+    _seed_memory(tmp_path / "memory.sqlite3")
+    assert main(["memory", "list", "--config", str(config), "--json"]) == 0
+    rows = json.loads(capsys.readouterr().out)
+    assert [row["task_id"] for row in rows] == ["parse_duration"]
+    assert main(["memory", "search", "timeout", "--config", str(config), "--json"]) == 0
+    rows = json.loads(capsys.readouterr().out)
+    assert len(rows) == 1
+    assert main(["memory", "list", "--config", str(config), "--limit", "0"]) == 2
+    assert "--limit" in capsys.readouterr().err
 
 
 class _FakeModel:

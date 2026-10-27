@@ -18,6 +18,7 @@ from typing import Any
 from janet import __version__
 from janet.bench.baseline import run_baseline
 from janet.bench.catalog import ALL_SEEDS
+from janet.bench.headroom import HeadroomError, assert_headroom, headroom_report
 from janet.bench.materialize import materialize, verify_manifest
 from janet.bench.repair_bench import run_repair_benchmark
 from janet.config import DEFAULT_CONFIG_PATH, Config, ConfigError, load_config
@@ -42,6 +43,7 @@ from janet.llm import LLMClient, LLMError
 from janet.loop.confirm import confirm_variant
 from janet.loop.evolution import evolve_dev_suite
 from janet.loop.generation import LoopError, run_loop
+from janet.memory import LessonRecord, MemoryError, ProcessMemory, SkillRecord
 from janet.preempt import Preempted, file_stop
 from janet.probe import (
     GIB,
@@ -175,6 +177,33 @@ def _parser() -> argparse.ArgumentParser:
     bench_repair.add_argument("--samples", type=int, default=2)
     bench_repair.add_argument("--no-compare", action="store_true")
     bench_sub.add_parser("tasks", help="list the seed tasks")
+    bench_headroom = bench_sub.add_parser(
+        "headroom", help="check that every split still has hard tasks"
+    )
+    bench_headroom.add_argument("--min-difficulty", type=int, default=3)
+    bench_headroom.add_argument("--json", action="store_true", dest="as_json")
+
+    memory = subparsers.add_parser("memory", help="inspect the process-memory store")
+    memory_sub = memory.add_subparsers(dest="memory_command", required=True)
+    memory_stats = memory_sub.add_parser("stats", help="count lessons and skills by status")
+    memory_stats.add_argument("--config", default=None)
+    memory_stats.add_argument("--json", action="store_true", dest="as_json")
+    memory_list = memory_sub.add_parser("list", help="list stored lessons or skills")
+    memory_list.add_argument("--config", default=None)
+    memory_list.add_argument("--kind", choices=["lessons", "skills"], default="lessons")
+    memory_list.add_argument("--status", default="verified")
+    memory_list.add_argument("--limit", type=int, default=20)
+    memory_list.add_argument("--json", action="store_true", dest="as_json")
+    memory_search = memory_sub.add_parser("search", help="full-text search over stored entries")
+    memory_search.add_argument("query")
+    memory_search.add_argument("--config", default=None)
+    memory_search.add_argument("--kind", choices=["lessons", "skills"], default="lessons")
+    memory_search.add_argument("--status", default="verified")
+    memory_search.add_argument("--limit", type=int, default=10)
+    memory_search.add_argument("--json", action="store_true", dest="as_json")
+    memory_verify = memory_sub.add_parser("verify", help="check SQLite integrity and FTS parity")
+    memory_verify.add_argument("--config", default=None)
+    memory_verify.add_argument("--json", action="store_true", dest="as_json")
 
     publish_cmd = subparsers.add_parser(
         "publish",
@@ -629,6 +658,39 @@ def _cmd_bench_repair(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_bench_headroom(args: argparse.Namespace) -> int:
+    if args.min_difficulty < 1:
+        raise ConfigError("--min-difficulty must be >= 1")
+    with tempfile.TemporaryDirectory(prefix="janet-headroom-") as directory:
+        root = Path(directory)
+        dev = load_suite(materialize(root / "dev", "dev", force=True).root, "dev")
+        anchor = load_suite(materialize(root / "anchor", "anchor", force=True).root, "anchor")
+        fresh = load_suite(materialize(root / "fresh", "fresh", force=True).root, "fresh")
+    report = headroom_report(dev, anchor, fresh, min_difficulty=args.min_difficulty)
+    try:
+        assert_headroom(report)
+    except HeadroomError as exc:
+        ok, detail = False, str(exc)
+    else:
+        ok, detail = True, ""
+    payload: dict[str, object] = {**report.to_dict(), "ok": ok}
+    if detail:
+        payload["detail"] = detail
+    if args.as_json:
+        print(json.dumps(payload, indent=2))
+    else:
+        print(
+            f"dev     {report.dev_hard}/{report.dev_tasks} hard "
+            f"(difficulty >= {args.min_difficulty})"
+        )
+        print(f"anchor  {report.anchor_hard}/{report.anchor_tasks} hard")
+        print(f"fresh   {report.fresh_hard}/{report.fresh_tasks} hard")
+        print(f"families: {', '.join(report.hard_families)}")
+    if not ok:
+        print(f"headroom gate failed: {detail}", file=sys.stderr)
+    return 0 if ok else 1
+
+
 def _cmd_bench(args: argparse.Namespace) -> int:
     if args.bench_command == "tasks":
         for seed in ALL_SEEDS:
@@ -642,6 +704,8 @@ def _cmd_bench(args: argparse.Namespace) -> int:
         return 0 if ok else 1
     if args.bench_command == "repair":
         return _cmd_bench_repair(args)
+    if args.bench_command == "headroom":
+        return _cmd_bench_headroom(args)
     if args.bench_command != "baseline":
         return 2
 
@@ -696,6 +760,86 @@ def _cmd_bench(args: argparse.Namespace) -> int:
     return 0
 
 
+def _cmd_memory(args: argparse.Namespace) -> int:
+    config = _load(args.config)
+    if getattr(args, "limit", 1) < 1:
+        raise ConfigError("--limit must be >= 1")
+    with ProcessMemory(config.paths.memory.expanduser()) as memory:
+        if args.memory_command == "stats":
+            payload = memory.stats()
+            if args.as_json:
+                print(json.dumps(payload, indent=2))
+            else:
+                print(f"path:     {payload['path']}")
+                print(f"schema:   {payload['schema_version']}")
+                print(f"lessons:  {_status_counts(payload['lessons'])}")
+                print(f"skills:   {_status_counts(payload['skills'])}")
+                print(f"evidence: {payload['evidence']}")
+                print(f"retrievals: {payload['retrieval_events']}")
+            return 0
+        if args.memory_command == "verify":
+            payload = memory.health()
+            if args.as_json:
+                print(json.dumps(payload, indent=2))
+            else:
+                print(f"path:      {payload['path']}")
+                print(f"integrity: {payload['integrity']}")
+                for content, entry in payload["indexes"].items():
+                    flag = "ok" if entry["ok"] else "MISMATCH"
+                    print(f"{content}: content={entry['content']} index={entry['index']} {flag}")
+                print("ok" if payload["ok"] else "FAILED")
+            return 0 if payload["ok"] else 1
+        if args.memory_command == "list":
+            rows = _memory_rows(memory, args.kind, args.status, args.limit)
+        else:
+            rows = _memory_rows(memory, args.kind, args.status, args.limit, query=args.query)
+    if args.as_json:
+        print(json.dumps(rows, indent=2))
+        return 0
+    if not rows:
+        print("no entries")
+        return 0
+    for row in rows:
+        if args.kind == "lessons":
+            print(f"{row['id']}\t{row['task_family']}\t{row['status']}\t{str(row['rule'])[:100]}")
+        else:
+            print(
+                f"{row['id']}\t{row['name']}\tv{row['version']}\t{row['status']}\t"
+                f"{str(row['rule'])[:80]}"
+            )
+    return 0
+
+
+def _memory_rows(
+    memory: ProcessMemory,
+    kind: str,
+    status: str,
+    limit: int,
+    *,
+    query: str | None = None,
+) -> list[dict[str, object]]:
+    records: tuple[LessonRecord, ...] | tuple[SkillRecord, ...]
+    if kind == "lessons":
+        records = (
+            memory.list_lessons(status=status, limit=limit)
+            if query is None
+            else memory.search_lessons(query, status=status, limit=limit)
+        )
+    else:
+        records = (
+            memory.list_skills(status=status, limit=limit)
+            if query is None
+            else memory.search_skills(query, status=status, limit=limit)
+        )
+    return [record.to_dict() for record in records]
+
+
+def _status_counts(counts: object) -> str:
+    if not isinstance(counts, dict) or not counts:
+        return "none"
+    return " ".join(f"{status}={count}" for status, count in sorted(counts.items()))
+
+
 def _cmd_publish(args: argparse.Namespace) -> int:
     app_config = load_app_config(Path(args.config) if args.config else None)
     root = Path(args.root).expanduser() if args.root else Path.cwd()
@@ -737,6 +881,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             return _cmd_archive(args)
         if args.command == "bench":
             return _cmd_bench(args)
+        if args.command == "memory":
+            return _cmd_memory(args)
         if args.command == "publish":
             return _cmd_publish(args)
         parser.error(f"unknown command: {args.command}")
@@ -755,6 +901,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         DaemonError,
         GitHubAppError,
         PublishError,
+        MemoryError,
+        HeadroomError,
     ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

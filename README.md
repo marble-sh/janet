@@ -17,9 +17,12 @@ Loops*, DOI
 P0–P4 are complete: substrate, verification-first benchmark with a hidden
 anchor, bounded repair loop, recursive harness loop (archive + mutation +
 Pareto selection), and evaluator co-evolution (mutant-killing inputs, judge
-calibration, decoupling detection). P5 (process memory) and P6 (meta-loop) are
-next. See
-[`docs/plans/plan-rsi-janet-2026-10-23.md`](docs/plans/plan-rsi-janet-2026-10-23.md).
+calibration, decoupling detection). P5 has started: the process-memory store
+(SQLite + FTS5, status transitions, provenance, retrieval events) is in place,
+and a `headroom` task family restores difficulty to the dev/anchor/fresh splits.
+P6 (meta-loop) is next. See
+[`docs/plans/plan-rsi-janet-2026-10-23.md`](docs/plans/plan-rsi-janet-2026-10-23.md)
+and [`docs/plans/plan-p5-p6-2026-10-26.md`](docs/plans/plan-p5-p6-2026-10-26.md).
 
 ## Quick start
 
@@ -29,8 +32,10 @@ uv run janet probe
 uv run janet doctor
 uv run janet run --dry-run
 uv run janet bench tasks
+uv run janet bench headroom
 uv run janet bench baseline --limit 4
 uv run janet bench repair --limit 4 --attempts 3 --samples 3
+uv run janet memory stats
 ```
 
 ## Recursive loop

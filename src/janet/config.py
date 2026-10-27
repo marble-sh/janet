@@ -56,6 +56,7 @@ class PathsConfig:
     evolved: Path = Path("runs/evolved")
     daemon: Path = Path("runs/daemon")
     bandit: Path = Path("runs/bandit.json")
+    memory: Path = Path("runs/memory.sqlite3")
 
 
 @dataclass(frozen=True, slots=True)
@@ -184,6 +185,7 @@ def _build_paths(raw: dict[str, Any]) -> PathsConfig:
         "evolved",
         "daemon",
         "bandit",
+        "memory",
     ):
         if key in values:
             values[key] = Path(str(values[key])).expanduser()

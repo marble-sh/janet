@@ -49,7 +49,7 @@ strict = true
 python_version = "3.12"
 warn_unreachable = true
 show_error_codes = true
-exclude = ["^runs/", "^dist/", "^build/", "^\\.venv/"]
+exclude = ["^runs/", "^dist/", "^build/", "^\\.venv/", "^research/", "^docs/state/"]
 
 [tool.pytest.ini_options]
 addopts = "--strict-markers -ra --timeout=60"

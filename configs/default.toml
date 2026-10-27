@@ -33,6 +33,7 @@ fresh = "~/.local/share/janet/fresh"
 evolved = "runs/evolved"
 daemon = "runs/daemon"
 bandit = "runs/bandit.json"
+memory = "runs/memory.sqlite3"
 
 [llm]
 # local: only the local server; hybrid: local runtime, remote allowed for

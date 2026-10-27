@@ -269,10 +269,12 @@ What is built versus planned:
 | Archive + git lineage, human promotion | Stale-objective probe |
 | Anti-hard-coding guard, inert-skill check | Meta-slope with bootstrap CI |
 | Mutation-kill evaluator evolution | Bandit metrics in the report |
-| Advisory judge calibration | P5 process memory (verified skills, lessons, amnesia test) |
+| Advisory judge calibration | P5 admission, retrieval policy, consolidation, amnesia test |
 | UCB1 operator bandit, reward v2 | |
 | Decoupling detector | |
 | Idle daemon with bounded, preemptible ladder | |
+| P5.1 process-memory store (SQLite + FTS5, provenance, retrieval log) | |
+| Headroom task family + `janet bench headroom` gate | |
 
 The next lever is not "run more generations". It is a harder benchmark with
 headroom and a proposer that produces genuinely different hypotheses.
