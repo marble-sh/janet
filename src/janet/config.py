@@ -116,12 +116,24 @@ class DaemonConfig:
 
 
 @dataclass(frozen=True, slots=True)
+class MemoryConfig:
+    """P5 retrieval policy. Off by default; the amnesia test decides adoption."""
+
+    enabled: bool = False
+    top_skills: int = 3
+    top_lessons: int = 5
+    max_prompt_tokens: int = 1200
+    min_success: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
 class Config:
     budget: BudgetConfig = BudgetConfig()
     paths: PathsConfig = PathsConfig()
     llm: LLMConfig = LLMConfig()
     loop: LoopConfig = LoopConfig()
     daemon: DaemonConfig = DaemonConfig()
+    memory: MemoryConfig = MemoryConfig()
 
 
 def _table(raw: dict[str, Any], name: str) -> dict[str, Any]:
@@ -269,6 +281,20 @@ def _build_daemon(raw: dict[str, Any]) -> DaemonConfig:
     return config
 
 
+def _build_memory(raw: dict[str, Any]) -> MemoryConfig:
+    try:
+        config = MemoryConfig(**_table(raw, "memory"))
+    except TypeError as exc:
+        raise ConfigError(f"invalid [memory]: {exc}") from exc
+    if config.top_skills < 0 or config.top_lessons < 0:
+        raise ConfigError("memory.top_skills and memory.top_lessons must be >= 0")
+    if config.max_prompt_tokens < 1:
+        raise ConfigError("memory.max_prompt_tokens must be >= 1")
+    if not 0.0 <= config.min_success <= 1.0:
+        raise ConfigError("memory.min_success must be in [0, 1]")
+    return config
+
+
 def load_config(path: Path | None = None) -> Config:
     """Load and validate a TOML configuration.
 
@@ -290,4 +316,5 @@ def load_config(path: Path | None = None) -> Config:
         llm=_build_llm(raw),
         loop=_build_loop(raw),
         daemon=_build_daemon(raw),
+        memory=_build_memory(raw),
     )

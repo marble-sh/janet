@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from janet.eval.extract import extract_python, looks_like_python
-from janet.eval.prompts import build_prompt, compose_system
+from janet.eval.prompts import MemorySource, build_prompt, compose_system
 from janet.eval.runner import Failure, TaskResult, run_task
 from janet.eval.task import Task
 from janet.governor import ResourceGovernor
@@ -34,6 +34,7 @@ class RepairAttempt:
     error: str | None
     result: TaskResult
     samples: int = 1
+    memory_ids: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -47,6 +48,7 @@ class RepairAttempt:
             "duration_s": round(self.duration_s, 3),
             "error": self.error,
             "samples": self.samples,
+            "memory_ids": list(self.memory_ids),
         }
 
 
@@ -217,6 +219,7 @@ def run_repair(
     samples_per_attempt: int = 1,
     system_prompt: str | None = None,
     skills: Sequence[Skill] = (),
+    memory: MemorySource | None = None,
     progress: Callable[[RepairAttempt], None] | None = None,
 ) -> RepairResult:
     if max_attempts < 1:
@@ -225,9 +228,15 @@ def run_repair(
         raise ValueError("samples_per_attempt must be >= 1")
     started = time.monotonic()
     prompt = build_prompt(task)
+    last_error: str | None = None
     attempts: list[RepairAttempt] = []
     for attempt_number in range(1, max_attempts + 1):
-        system = compose_system(system_prompt, skills, task)
+        context = (
+            memory.context_for(task, attempt=attempt_number, last_error=last_error)
+            if memory is not None and not task.is_integrity
+            else None
+        )
+        system = compose_system(system_prompt, skills, task, context)
         attempt_started = time.monotonic()
         samples = [
             _sample(
@@ -259,6 +268,7 @@ def run_repair(
             error=best.error,
             result=best.result,
             samples=len(samples),
+            memory_ids=context.ids() if context is not None else (),
         )
         attempts.append(attempt)
         if progress:
@@ -269,6 +279,9 @@ def run_repair(
             break
         if attempt_number < max_attempts:
             prompt = build_repair_prompt(task, best.candidate, best.result)
+            last_error = best.result.error or "; ".join(
+                _describe_failure(failure) for failure in best.result.failures[:3]
+            )
     final = attempts[-1].result
     return RepairResult(
         task_id=task.id,

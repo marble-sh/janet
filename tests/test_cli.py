@@ -7,7 +7,8 @@ from typing import Any
 import pytest
 
 from janet.bench.seeds import SEEDS
-from janet.cli import main
+from janet.cli import _memory_retriever, main
+from janet.config import Config, MemoryConfig, PathsConfig
 from janet.llm import LLMResponse
 from janet.memory import ProcessMemory
 
@@ -122,6 +123,19 @@ def test_bench_headroom_reports_hard_tasks(capsys: pytest.CaptureFixture[str]) -
     assert payload["anchor_hard"] >= 4
     assert payload["fresh_hard"] >= 2
     assert "headroom" in payload["hard_families"]
+
+
+def test_memory_retriever_respects_the_override(tmp_path: Path) -> None:
+    config = Config(
+        paths=PathsConfig(memory=tmp_path / "memory.sqlite3"),
+        memory=MemoryConfig(enabled=False),
+    )
+    assert _memory_retriever(config, (), (), None) == (None, None)
+    assert _memory_retriever(config, (), (), "off") == (None, None)
+    retriever, store = _memory_retriever(config, (), (), "on")
+    assert retriever is not None
+    assert store is not None
+    store.close()
 
 
 def _memory_config(tmp_path: Path) -> Path:

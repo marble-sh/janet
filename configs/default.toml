@@ -35,6 +35,14 @@ daemon = "runs/daemon"
 bandit = "runs/bandit.json"
 memory = "runs/memory.sqlite3"
 
+[memory]
+# P5 retrieval. Keep off until the hidden amnesia split shows a positive effect.
+enabled = false
+top_skills = 3
+top_lessons = 5
+max_prompt_tokens = 1200
+min_success = 0.0
+
 [llm]
 # local: only the local server; hybrid: local runtime, remote allowed for
 # non-task metadata; remote: not implemented and blocked while task data is

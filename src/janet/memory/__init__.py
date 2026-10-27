@@ -7,6 +7,7 @@ from janet.memory.admit import (
     admit_lesson,
     admit_skill,
 )
+from janet.memory.retrieve import MemoryRetriever
 from janet.memory.store import (
     SCHEMA_VERSION,
     EvidenceRecord,
@@ -24,6 +25,7 @@ __all__ = [
     "EvidenceRecord",
     "LessonRecord",
     "MemoryError",
+    "MemoryRetriever",
     "ProcessMemory",
     "SkillRecord",
     "admit_lesson",

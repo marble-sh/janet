@@ -470,12 +470,30 @@ class ProcessMemory:
         status: StatusLike = "verified",
         limit: int = 5,
     ) -> tuple[LessonRecord, ...]:
+        scored = self.search_lessons_scored(
+            query, task_family=task_family, status=status, limit=limit
+        )
+        return tuple(record for record, _score in scored)
+
+    def search_lessons_scored(
+        self,
+        query: str,
+        *,
+        task_family: str | None = None,
+        status: StatusLike = "verified",
+        limit: int = 25,
+    ) -> tuple[tuple[LessonRecord, float], ...]:
+        """FTS hits ordered by ``bm25`` (lower is better), with the raw score."""
+
         _status(status)
         if limit < 1:
             raise MemoryError("limit must be >= 1")
         fts = _fts_query(query)
         if not fts:
-            return self.list_lessons(status=status, task_family=task_family, limit=limit)
+            return tuple(
+                (record, 0.0)
+                for record in self.list_lessons(status=status, task_family=task_family, limit=limit)
+            )
         sql = """
             SELECT l.*, bm25(lesson_fts) AS rank
             FROM lesson_fts JOIN lessons l ON l.id = lesson_fts.rowid
@@ -488,7 +506,7 @@ class ProcessMemory:
         sql += " ORDER BY rank ASC, l.success_count DESC LIMIT ?"
         params.append(limit)
         rows = self._conn.execute(sql, params).fetchall()
-        return tuple(self._lesson(row) for row in rows)
+        return tuple((self._lesson(row), float(row["rank"])) for row in rows)
 
     # ---- skills ------------------------------------------------------
 
@@ -560,12 +578,20 @@ class ProcessMemory:
     def search_skills(
         self, query: str, *, status: StatusLike = "verified", limit: int = 3
     ) -> tuple[SkillRecord, ...]:
+        scored = self.search_skills_scored(query, status=status, limit=limit)
+        return tuple(record for record, _score in scored)
+
+    def search_skills_scored(
+        self, query: str, *, status: StatusLike = "verified", limit: int = 25
+    ) -> tuple[tuple[SkillRecord, float], ...]:
+        """FTS hits ordered by ``bm25`` (lower is better), with the raw score."""
+
         _status(status)
         if limit < 1:
             raise MemoryError("limit must be >= 1")
         fts = _fts_query(query)
         if not fts:
-            return self.list_skills(status=status, limit=limit)
+            return tuple((record, 0.0) for record in self.list_skills(status=status, limit=limit))
         rows = self._conn.execute(
             """
             SELECT s.*, bm25(skill_fts) AS rank
@@ -575,7 +601,7 @@ class ProcessMemory:
             """,
             (fts, status, limit),
         ).fetchall()
-        return tuple(self._skill(row) for row in rows)
+        return tuple((self._skill(row), float(row["rank"])) for row in rows)
 
     # ---- lifecycle ---------------------------------------------------
 

@@ -11,6 +11,7 @@ from pathlib import Path
 
 from janet.bench.baseline import BaselineReport, run_baseline
 from janet.config import Config
+from janet.eval.prompts import MemorySource
 from janet.eval.repair import RepairAttempt, RepairResult, run_repair
 from janet.eval.task import Task
 from janet.governor import ResourceGovernor
@@ -34,6 +35,7 @@ class RepairBenchRow:
     wall_s: float
     error: str | None
     artifact_dir: str
+    memory_ids: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -49,6 +51,7 @@ class RepairBenchRow:
             "wall_s": round(self.wall_s, 3),
             "error": self.error,
             "artifact_dir": self.artifact_dir,
+            "memory_ids": list(self.memory_ids),
         }
 
 
@@ -177,6 +180,7 @@ def run_repair_benchmark(
     skills: Sequence[Skill] = (),
     stop: StopCheck | None = None,
     compare: bool = True,
+    memory: MemorySource | None = None,
     progress: Callable[[str, RepairAttempt], None] | None = None,
 ) -> RepairBenchReport:
     run_dir = run_dir.expanduser()
@@ -199,6 +203,7 @@ def run_repair_benchmark(
             system_prompt=system_prompt,
             skills=skills,
             stop=stop,
+            memory=memory,
         )
         baseline_by_id = {row.task_id: row.score for row in baseline.rows}
 
@@ -222,6 +227,7 @@ def run_repair_benchmark(
             samples_per_attempt=samples_per_attempt,
             system_prompt=system_prompt,
             skills=skills,
+            memory=memory,
             progress=on_attempt if progress is not None else None,
         )
         artifact_dir = _write_attempts(run_dir, repair)
@@ -240,6 +246,11 @@ def run_repair_benchmark(
                 wall_s=repair.wall_s,
                 error=repair.final.error,
                 artifact_dir=artifact_dir,
+                memory_ids=tuple(
+                    dict.fromkeys(
+                        item for attempt in repair.attempts for item in attempt.memory_ids
+                    )
+                ),
             )
         )
     wall_s = time.monotonic() - started

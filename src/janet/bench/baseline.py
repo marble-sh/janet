@@ -11,7 +11,7 @@ from pathlib import Path
 
 from janet.config import Config
 from janet.eval.extract import extract_python, looks_like_python
-from janet.eval.prompts import build_prompt, compose_system
+from janet.eval.prompts import MemorySource, build_prompt, compose_system
 from janet.eval.runner import TaskResult, run_task
 from janet.eval.task import Task
 from janet.governor import ResourceGovernor
@@ -35,6 +35,7 @@ class BaselineRow:
     response_chars: int
     extracted: bool
     artifact: str | None = None
+    memory_ids: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -50,6 +51,7 @@ class BaselineRow:
             "response_chars": self.response_chars,
             "extracted": self.extracted,
             "artifact": self.artifact,
+            "memory_ids": list(self.memory_ids),
         }
 
 
@@ -156,6 +158,7 @@ def run_baseline(
     skills: Sequence[Skill] = (),
     stop: StopCheck | None = None,
     progress: Callable[[BaselineRow], None] | None = None,
+    memory: MemorySource | None = None,
 ) -> BaselineReport:
     run_dir = run_dir.expanduser()
     run_dir.mkdir(parents=True, exist_ok=True)
@@ -172,7 +175,9 @@ def run_baseline(
         if governor.should_yield():
             time.sleep(5.0)
         prompt = build_prompt(task)
-        system = compose_system(system_prompt, skills, task)
+        context = memory.context_for(task) if memory is not None and not task.is_integrity else None
+        system = compose_system(system_prompt, skills, task, context)
+        memory_ids = context.ids() if context is not None else ()
         task_started = time.monotonic()
         try:
             response: LLMResponse = client.generate(prompt, system=system)
@@ -189,6 +194,7 @@ def run_baseline(
                 prompt_eval_count=0,
                 response_chars=0,
                 extracted=False,
+                memory_ids=memory_ids,
             )
             rows.append(row)
             if progress:
@@ -218,6 +224,7 @@ def run_baseline(
             response_chars=len(response.text),
             extracted=extracted,
             artifact=str(artifact_path.relative_to(run_dir)),
+            memory_ids=memory_ids,
         )
         rows.append(row)
         if progress:

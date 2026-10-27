@@ -109,6 +109,22 @@ def test_spike_gpu_must_cover_soft_gpu() -> None:
         _validate_budget(BudgetConfig(gpu_fraction=0.5, spike_gpu_fraction=0.4))
 
 
+def test_memory_defaults_are_off() -> None:
+    config = load_config()
+    assert config.memory.enabled is False
+    assert config.memory.top_skills == 3
+    assert config.memory.top_lessons == 5
+    assert config.memory.max_prompt_tokens == 1200
+    assert config.memory.min_success == 0.0
+
+
+def test_invalid_memory_values_are_rejected(tmp_path: Path) -> None:
+    path = tmp_path / "config.toml"
+    path.write_text("[memory]\nmax_prompt_tokens = 0\n", encoding="utf-8")
+    with pytest.raises(ConfigError, match="max_prompt_tokens"):
+        load_config(path)
+
+
 def test_llm_defaults_are_local_and_private() -> None:
     llm = LLMConfig()
     assert llm.mode == "local"

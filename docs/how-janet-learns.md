@@ -141,6 +141,14 @@ On the **anchor**, the candidate gets one shot with no repair feedback. That is
 deliberate: it measures whether the notebook generalizes, and it stops hidden
 test inputs from leaking back into the loop.
 
+**Process memory (P5, off by default)** lives in `runs/memory.sqlite3`. With
+`janet run --memory on`, each dev task retrieves at most three verified skills
+and five verified lessons, ranked by BM25, success rate, recency, and trigger
+specificity. The context is capped at 1,200 estimated prompt tokens, screened by
+the anti-hard-coding guard, and every selection is logged in
+`retrieval_events`. Memory is never injected into integrity tasks and is not
+used for anchor scoring. The hidden memory split decides whether it stays on.
+
 ---
 
 ## Why it cannot just fool itself
@@ -269,12 +277,13 @@ What is built versus planned:
 | Archive + git lineage, human promotion | Stale-objective probe |
 | Anti-hard-coding guard, inert-skill check | Meta-slope with bootstrap CI |
 | Mutation-kill evaluator evolution | Bandit metrics in the report |
-| Advisory judge calibration | P5 retrieval policy, consolidation, amnesia test |
+| Advisory judge calibration | P5 consolidation, amnesia test |
 | UCB1 operator bandit, reward v2 | |
 | Decoupling detector | |
 | Idle daemon with bounded, preemptible ladder | |
 | P5.1 process-memory store (SQLite + FTS5, provenance, retrieval log) | |
 | P5.2 admission gates (task-name, unsafe-text, inert/generic triggers, tests) | |
+| P5.3 deterministic retrieval (BM25, caps, token budget, guard, logging) | |
 | Headroom task family + `janet bench headroom` gate | |
 
 The next lever is not "run more generations". It is a harder benchmark with

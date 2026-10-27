@@ -22,6 +22,7 @@ from typing import Any
 from janet.bench.baseline import run_baseline
 from janet.bench.repair_bench import RepairBenchReport, run_repair_benchmark
 from janet.config import Config
+from janet.eval.prompts import MemorySource
 from janet.eval.task import Task
 from janet.events import EventLog
 from janet.governor import ResourceGovernor
@@ -127,6 +128,7 @@ def _seed(
     limit: int | None,
     dev_suite: str = "",
     stop: StopCheck | None = None,
+    memory: MemorySource | None = None,
 ) -> HarnessRecord:
     existing = archive.seed()
     if existing is not None:
@@ -148,6 +150,7 @@ def _seed(
         samples_per_attempt=seed.samples_per_attempt,
         system_prompt=seed.system_prompt,
         skills=seed.skills,
+        memory=memory,
         stop=stop,
         compare=False,
     )
@@ -225,6 +228,7 @@ def run_generation(
     strict_heldout: bool = False,
     stop: StopCheck | None = None,
     bandit: BanditState | None = None,
+    memory: MemorySource | None = None,
 ) -> GenerationResult:
     parent = archive.current()
     if parent is None:
@@ -271,6 +275,7 @@ def run_generation(
         samples_per_attempt=parent.spec.samples_per_attempt,
         system_prompt=parent.spec.system_prompt,
         skills=parent.spec.skills,
+        memory=memory,
         stop=stop,
         compare=False,
     )
@@ -289,6 +294,7 @@ def run_generation(
         samples_per_attempt=candidate.samples_per_attempt,
         system_prompt=candidate.system_prompt,
         skills=candidate.skills,
+        memory=memory,
         stop=stop,
         compare=False,
     )
@@ -348,6 +354,10 @@ def run_generation(
         "anchor_heldout": heldout,
         "parent_heldout": parent_heldout,
         "strict_blocked": strict_blocked,
+        "memory_on": memory is not None,
+        "memory_ids": sorted(
+            dict.fromkeys(item for row in dev_report.rows for item in row.memory_ids)
+        ),
     }
     reward = reward_for(
         improved=improved,
@@ -399,6 +409,7 @@ def run_loop(
     anchor_root: Path | None = None,
     dev_suite: str = "",
     stop: StopCheck | None = None,
+    memory: MemorySource | None = None,
 ) -> tuple[GenerationResult, ...]:
     if generations < 1:
         raise LoopError("generations must be >= 1")
@@ -424,6 +435,7 @@ def run_loop(
             limit=limit,
             dev_suite=dev_suite,
             stop=stop,
+            memory=memory,
         )
         log.emit(
             "seed.ready",
@@ -451,6 +463,7 @@ def run_loop(
                 strict_heldout=decoupling.flagged,
                 stop=stop,
                 bandit=bandit,
+                memory=memory,
             )
             bandit.save(config.paths.bandit.expanduser())
             results.append(result)

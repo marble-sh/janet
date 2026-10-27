@@ -34,16 +34,17 @@ from janet.daemon import (
 from janet.eval.evolve import apply_evolved
 from janet.eval.judge import build_samples, calibrate
 from janet.eval.repair import RepairAttempt
-from janet.eval.task import TaskError, load_suite, select_tasks
+from janet.eval.task import Task, TaskError, load_suite, select_tasks
 from janet.github_app import GitHubAppError, load_app_config
 from janet.governor import GovernorError, ResourceGovernor
 from janet.harness.archive import Archive, ArchiveError
 from janet.harness.bandit import BanditState, format_bandit
+from janet.harness.guard import forbidden_terms
 from janet.llm import LLMClient, LLMError
 from janet.loop.confirm import confirm_variant
 from janet.loop.evolution import evolve_dev_suite
 from janet.loop.generation import LoopError, run_loop
-from janet.memory import LessonRecord, MemoryError, ProcessMemory, SkillRecord
+from janet.memory import LessonRecord, MemoryError, MemoryRetriever, ProcessMemory, SkillRecord
 from janet.preempt import Preempted, file_stop
 from janet.probe import (
     GIB,
@@ -83,6 +84,7 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--generations", type=int, default=None)
     run.add_argument("--limit", type=int, default=None)
     run.add_argument("--dry-run", action="store_true")
+    run.add_argument("--memory", choices=["on", "off"], default=None)
 
     evolve = subparsers.add_parser(
         "evolve", help="grow the dev evaluator with mutation-killing test inputs"
@@ -382,19 +384,46 @@ def _cmd_run(args: argparse.Namespace) -> int:
     suites = load_suites(config)
     client = _local_client(config)
     governor = ResourceGovernor(budget)
-    results = run_loop(
-        client,
-        governor,
-        config,
-        suites.dev,
-        suites.anchor,
-        generations=generations,
-        limit=args.limit,
-        anchor_root=suites.anchor_root,
-        dev_suite=suites.dev_suite,
-    )
+    retriever, memory_store = _memory_retriever(config, suites.dev, suites.anchor, args.memory)
+    try:
+        results = run_loop(
+            client,
+            governor,
+            config,
+            suites.dev,
+            suites.anchor,
+            generations=generations,
+            limit=args.limit,
+            anchor_root=suites.anchor_root,
+            dev_suite=suites.dev_suite,
+            memory=retriever,
+        )
+    finally:
+        if memory_store is not None:
+            memory_store.close()
     print(json.dumps([result.to_dict() for result in results], indent=2))
     return 0
+
+
+def _memory_retriever(
+    config: Config,
+    dev: Sequence[Task],
+    anchor: Sequence[Task],
+    override: str | None,
+) -> tuple[MemoryRetriever | None, ProcessMemory | None]:
+    enabled = config.memory.enabled if override is None else override == "on"
+    if not enabled:
+        return None, None
+    store = ProcessMemory(config.paths.memory.expanduser())
+    retriever = MemoryRetriever(
+        store,
+        forbidden=forbidden_terms((*dev, *anchor)),
+        top_skills=config.memory.top_skills,
+        top_lessons=config.memory.top_lessons,
+        max_prompt_tokens=config.memory.max_prompt_tokens,
+        min_success=config.memory.min_success,
+    )
+    return retriever, store
 
 
 def _cmd_archive(args: argparse.Namespace) -> int:
