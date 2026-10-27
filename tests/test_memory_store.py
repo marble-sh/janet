@@ -191,3 +191,25 @@ def test_health_reports_integrity_and_fts_parity(memory: ProcessMemory) -> None:
     assert payload["schema_version"] == 1
     assert payload["indexes"]["lessons"] == {"content": 1, "index": 1, "ok": True}
     assert payload["indexes"]["skills"] == {"content": 1, "index": 1, "ok": True}
+
+
+def test_list_evidence_returns_newest_first(memory: ProcessMemory) -> None:
+    lesson_id = _lesson(memory)
+    for run in ("run-1", "run-2"):
+        memory.record_evidence(
+            "lesson",
+            lesson_id,
+            run_id=run,
+            split="dev",
+            verifier_version="v1",
+            test_ids=[],
+            raw={},
+        )
+    evidence = memory.list_evidence("lesson", lesson_id)
+    assert [item.run_id for item in evidence] == ["run-2", "run-1"]
+    assert evidence[0].to_dict()["split"] == "dev"
+
+
+def test_list_evidence_rejects_an_unknown_subject(memory: ProcessMemory) -> None:
+    with pytest.raises(MemoryError, match="unknown skill"):
+        memory.list_evidence("skill", "missing")

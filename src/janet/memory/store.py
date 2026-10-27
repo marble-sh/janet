@@ -180,6 +180,38 @@ class SkillRecord:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class EvidenceRecord:
+    id: int
+    subject_kind: str
+    subject_id: str
+    run_id: str
+    variant_hash: str | None
+    split: str
+    verifier_version: str
+    test_ids: tuple[str, ...]
+    score_before: float | None
+    score_after: float | None
+    raw: dict[str, Any]
+    created_at: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "id": self.id,
+            "subject_kind": self.subject_kind,
+            "subject_id": self.subject_id,
+            "run_id": self.run_id,
+            "variant_hash": self.variant_hash,
+            "split": self.split,
+            "verifier_version": self.verifier_version,
+            "test_ids": list(self.test_ids),
+            "score_before": self.score_before,
+            "score_after": self.score_after,
+            "raw": self.raw,
+            "created_at": self.created_at,
+        }
+
+
 _SCHEMA = """
 CREATE TABLE IF NOT EXISTS memory_meta (
     key TEXT PRIMARY KEY,
@@ -650,6 +682,22 @@ class ProcessMemory:
         self._conn.commit()
         return int(cursor.lastrowid or 0)
 
+    def list_evidence(
+        self, subject_kind: SubjectKind, subject_id: int | str, *, limit: int = 20
+    ) -> tuple[EvidenceRecord, ...]:
+        table = self._table(subject_kind)
+        if limit < 1:
+            raise MemoryError("limit must be >= 1")
+        exists = self._conn.execute(f"SELECT 1 FROM {table} WHERE id = ?", (subject_id,)).fetchone()
+        if exists is None:
+            raise MemoryError(f"unknown {subject_kind}: {subject_id}")
+        rows = self._conn.execute(
+            "SELECT * FROM evidence WHERE subject_kind = ? AND subject_id = ? "
+            "ORDER BY id DESC LIMIT ?",
+            (subject_kind, str(subject_id), limit),
+        ).fetchall()
+        return tuple(self._evidence(row) for row in rows)
+
     def record_retrieval(
         self,
         subject_kind: SubjectKind,
@@ -779,4 +827,24 @@ class ProcessMemory:
             last_used_at=str(row["last_used_at"]) if row["last_used_at"] is not None else None,
             success_count=int(row["success_count"]),
             failure_count=int(row["failure_count"]),
+        )
+
+    @staticmethod
+    def _evidence(row: sqlite3.Row) -> EvidenceRecord:
+        test_ids = _decode(str(row["test_ids_json"]))
+        if not isinstance(test_ids, list):
+            raise MemoryError("stored evidence test ids are not a list")
+        return EvidenceRecord(
+            id=int(row["id"]),
+            subject_kind=str(row["subject_kind"]),
+            subject_id=str(row["subject_id"]),
+            run_id=str(row["run_id"]),
+            variant_hash=str(row["variant_hash"]) if row["variant_hash"] is not None else None,
+            split=str(row["split"]),
+            verifier_version=str(row["verifier_version"]),
+            test_ids=tuple(str(item) for item in test_ids),
+            score_before=float(row["score_before"]) if row["score_before"] is not None else None,
+            score_after=float(row["score_after"]) if row["score_after"] is not None else None,
+            raw=_mapping("raw", _decode(str(row["raw_json"]))),
+            created_at=str(row["created_at"]),
         )

@@ -18,9 +18,10 @@ P0–P4 are complete: substrate, verification-first benchmark with a hidden
 anchor, bounded repair loop, recursive harness loop (archive + mutation +
 Pareto selection), and evaluator co-evolution (mutant-killing inputs, judge
 calibration, decoupling detection). P5 has started: the process-memory store
-(SQLite + FTS5, status transitions, provenance, retrieval events) is in place,
-and a `headroom` task family restores difficulty to the dev/anchor/fresh splits.
-P6 (meta-loop) is next. See
+(SQLite + FTS5, status transitions, provenance, retrieval events) and its
+admission gates (task-name, unsafe-text, inert/generic trigger, and test-shape
+checks) are in place, and a `headroom` task family restores difficulty to the
+dev/anchor/fresh splits. P6 (meta-loop) is next. See
 [`docs/plans/plan-rsi-janet-2026-10-23.md`](docs/plans/plan-rsi-janet-2026-10-23.md)
 and [`docs/plans/plan-p5-p6-2026-10-26.md`](docs/plans/plan-p5-p6-2026-10-26.md).
 

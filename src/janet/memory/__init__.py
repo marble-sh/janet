@@ -1,7 +1,15 @@
 """Process memory for verified skills and lessons."""
 
+from janet.memory.admit import (
+    ADMISSION_VERSION,
+    AdmissionDecision,
+    AdmissionError,
+    admit_lesson,
+    admit_skill,
+)
 from janet.memory.store import (
     SCHEMA_VERSION,
+    EvidenceRecord,
     LessonRecord,
     MemoryError,
     ProcessMemory,
@@ -9,9 +17,15 @@ from janet.memory.store import (
 )
 
 __all__ = [
+    "ADMISSION_VERSION",
     "SCHEMA_VERSION",
+    "AdmissionDecision",
+    "AdmissionError",
+    "EvidenceRecord",
     "LessonRecord",
     "MemoryError",
     "ProcessMemory",
     "SkillRecord",
+    "admit_lesson",
+    "admit_skill",
 ]

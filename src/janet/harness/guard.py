@@ -77,9 +77,17 @@ def trigger_vocabulary(
     return tuple(word for word, _ in common[:limit])
 
 
-def find_leaks(spec: HarnessSpec, terms: Iterable[str]) -> tuple[str, ...]:
-    text = spec_text(spec)
+def find_text_leaks(text: str, terms: Iterable[str]) -> tuple[str, ...]:
+    """Forbidden terms that appear in ``text`` as whole tokens."""
+
+    haystack = text.lower()
     leaks = [
-        term for term in terms if re.search(rf"(?<![a-z0-9_]){re.escape(term)}(?![a-z0-9_])", text)
+        term
+        for term in terms
+        if re.search(rf"(?<![a-z0-9_]){re.escape(term)}(?![a-z0-9_])", haystack)
     ]
     return tuple(sorted(set(leaks)))
+
+
+def find_leaks(spec: HarnessSpec, terms: Iterable[str]) -> tuple[str, ...]:
+    return find_text_leaks(spec_text(spec), terms)
