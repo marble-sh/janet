@@ -150,6 +150,13 @@ On the **anchor**, the candidate gets one shot with no repair feedback. That is
 deliberate: it measures whether the notebook generalizes, and it stops hidden
 test inputs from leaking back into the loop.
 
+**Drift detection** runs the Spearman/half-gain check beside a
+baseline-referenced CUSUM on `dev - heldout` (drift 0.01, threshold 0.05). A
+stable gap is not drift; a *rise* turns on strict acceptance, after which dev
+alone cannot pass. A synthetic stale-objective probe reports CUSUM detection
+latency and whether the loop would switch to strict mode; it is an experiment,
+never a selection signal.
+
 **Process memory (P5, off by default)** lives in `runs/memory.sqlite3`. With
 `janet run --memory on`, each dev task retrieves at most three verified skills
 and five verified lessons, ranked by BM25, success rate, recency, and trigger
@@ -297,6 +304,7 @@ What is built versus planned:
 | P6.1 six operator arms + cost-aware reward v3 | |
 | P6.2 MAP-Elites frontier + novelty parent selection | |
 | P6.3 paired sign test / e-process gate + fresh release report (opt-in) | |
+| P6.4 CUSUM drift detector + stale-objective probe | |
 | Headroom task family + `janet bench headroom` gate | |
 
 The next lever is not "run more generations". It is a harder benchmark with

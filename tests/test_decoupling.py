@@ -2,7 +2,18 @@ from __future__ import annotations
 
 import pytest
 
-from janet.loop.decoupling import Decoupling, _half_gain, _ranks, detect, spearman
+from janet.loop.decoupling import (
+    CusumResult,
+    Decoupling,
+    DecouplingError,
+    _half_gain,
+    _ranks,
+    assess,
+    cusum,
+    detect,
+    spearman,
+    stale_objective_probe,
+)
 
 
 def test_ranks_treat_float_noise_as_tied() -> None:
@@ -75,3 +86,78 @@ def test_decoupling_payload_is_json_safe() -> None:
     assert payload["dev_gain"] == 0.1
     assert payload["flagged"] is False
     assert payload["rank_corr"] == 0.5
+
+
+def test_cusum_detects_a_step_rise() -> None:
+    points = [(0.5, 0.5)] * 3 + [(0.56, 0.5)] * 3
+    result = cusum(points)
+    assert result.flagged
+    assert result.first_flag == 4
+    assert result.peak >= result.threshold
+
+
+def test_cusum_ignores_a_stable_high_gap() -> None:
+    # Dev is normally easier than the hidden anchor; a stable gap is not drift.
+    result = cusum([(0.9, 0.7)] * 8)
+    assert not result.flagged
+    assert result.statistic == 0.0
+
+
+def test_cusum_needs_the_minimum_points() -> None:
+    result = cusum([(0.5, 0.5)] * 4)
+    assert not result.flagged
+    assert "need 5 points" in result.reason
+
+
+def test_cusum_detects_a_gradual_shift() -> None:
+    points = [(0.5, 0.5)] * 3 + [(0.53, 0.5)] * 5
+    result = cusum(points)
+    assert result.flagged
+    assert result.first_flag == 6
+
+
+def test_cusum_validates_parameters() -> None:
+    with pytest.raises(DecouplingError, match="drift"):
+        cusum([], drift=-0.1)
+    with pytest.raises(DecouplingError, match="threshold"):
+        cusum([], threshold=0.0)
+    with pytest.raises(DecouplingError, match="baseline_points"):
+        cusum([], baseline_points=0)
+    with pytest.raises(DecouplingError, match="min_points"):
+        cusum([], baseline_points=3, min_points=3)
+
+
+def test_assess_runs_both_detectors() -> None:
+    decoupling, drift = assess([(0.4, 0.5), (0.4, 0.5), (0.5, 0.5), (0.6, 0.5), (0.7, 0.5)])
+    assert decoupling.flagged
+    assert drift.flagged
+    assert isinstance(drift, CusumResult)
+
+
+def test_stale_probe_detects_within_the_window() -> None:
+    probe = stale_objective_probe(shift=0.06, noise=0.0)
+    assert probe.detection_latency == 1
+    assert probe.detection_index == probe.pre_points + 1
+    assert probe.reframed
+
+
+def test_stale_probe_reports_a_missing_shift() -> None:
+    probe = stale_objective_probe(shift=0.0, noise=0.0)
+    assert probe.detection_latency is None
+    assert probe.detection_index is None
+    assert not probe.reframed
+
+
+def test_stale_probe_is_deterministic_with_noise() -> None:
+    first = stale_objective_probe(shift=0.08, noise=0.01, seed=3)
+    second = stale_objective_probe(shift=0.08, noise=0.01, seed=3)
+    assert first == second
+    assert first.reframed
+    assert first.to_dict()["detection_latency"] == 1
+
+
+def test_stale_probe_validates_inputs() -> None:
+    with pytest.raises(DecouplingError, match="pre_points"):
+        stale_objective_probe(pre_points=1)
+    with pytest.raises(DecouplingError, match="noise"):
+        stale_objective_probe(noise=-1.0)

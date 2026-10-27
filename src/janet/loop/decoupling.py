@@ -9,8 +9,13 @@ for every acceptance instead of trusting dev.
 
 from __future__ import annotations
 
+import random
 from collections.abc import Sequence
 from dataclasses import dataclass
+
+
+class DecouplingError(ValueError):
+    """Raised when a detector is configured with invalid parameters."""
 
 
 @dataclass(frozen=True, slots=True)
@@ -98,3 +103,151 @@ def detect(
         reason = f"dev and held-out are anti-correlated (rho={corr:.2f})"
         return Decoupling(n, dev_gain, held_gain, corr, True, reason)
     return Decoupling(n, dev_gain, held_gain, corr, False, "dev tracks held-out")
+
+
+@dataclass(frozen=True, slots=True)
+class CusumResult:
+    n: int
+    statistic: float
+    peak: float
+    baseline: float
+    drift: float
+    threshold: float
+    flagged: bool
+    first_flag: int | None
+    reason: str
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "n": self.n,
+            "statistic": round(self.statistic, 6),
+            "peak": round(self.peak, 6),
+            "baseline": round(self.baseline, 6),
+            "drift": self.drift,
+            "threshold": self.threshold,
+            "flagged": self.flagged,
+            "first_flag": self.first_flag,
+            "reason": self.reason,
+        }
+
+
+def cusum(
+    points: Sequence[tuple[float, float]],
+    *,
+    drift: float = 0.01,
+    threshold: float = 0.05,
+    baseline_points: int = 3,
+    min_points: int = 5,
+    baseline: float | None = None,
+) -> CusumResult:
+    """One-sided CUSUM on the dev-minus-heldout gap.
+
+    The raw gap is normally positive (dev is easier than the hidden anchor), so
+    the detector is referenced to a baseline level; it flags a *rise* in the gap
+    relative to that level, not the level itself. The first ``baseline_points``
+    observations estimate the baseline unless one is supplied.
+    """
+
+    if drift < 0.0:
+        raise DecouplingError("drift must be >= 0")
+    if threshold <= 0.0:
+        raise DecouplingError("threshold must be > 0")
+    if baseline_points < 1:
+        raise DecouplingError("baseline_points must be >= 1")
+    if min_points < baseline_points + 1:
+        raise DecouplingError("min_points must be greater than baseline_points")
+    gaps = [float(dev) - float(held) for dev, held in points]
+    n = len(gaps)
+    if n < min_points:
+        return CusumResult(
+            n, 0.0, 0.0, 0.0, drift, threshold, False, None, f"need {min_points} points, have {n}"
+        )
+    reference = baseline if baseline is not None else sum(gaps[:baseline_points]) / baseline_points
+    statistic = 0.0
+    peak = 0.0
+    first_flag: int | None = None
+    for index in range(baseline_points, n):
+        statistic = max(0.0, statistic + (gaps[index] - reference) - drift)
+        peak = max(peak, statistic)
+        if statistic >= threshold and first_flag is None:
+            first_flag = index + 1
+    if first_flag is not None:
+        reason = (
+            f"gap rose above baseline {reference:.3f} at point {first_flag} "
+            f"(cusum {peak:.3f} >= {threshold:.3f})"
+        )
+        return CusumResult(
+            n, statistic, peak, reference, drift, threshold, True, first_flag, reason
+        )
+    return CusumResult(
+        n, statistic, peak, reference, drift, threshold, False, None, "gap is stable"
+    )
+
+
+def assess(
+    points: Sequence[tuple[float, float]],
+    *,
+    gap: float = 0.08,
+    corr_floor: float = -0.2,
+    drift: float = 0.01,
+    threshold: float = 0.05,
+) -> tuple[Decoupling, CusumResult]:
+    """Run both detectors; either one turns on strict acceptance."""
+
+    return detect(points, gap=gap, corr_floor=corr_floor), cusum(
+        points, drift=drift, threshold=threshold
+    )
+
+
+@dataclass(frozen=True, slots=True)
+class StaleProbe:
+    pre_points: int
+    post_points: int
+    shift: float
+    detection_latency: int | None
+    detection_index: int | None
+    reframed: bool
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "pre_points": self.pre_points,
+            "post_points": self.post_points,
+            "shift": self.shift,
+            "detection_latency": self.detection_latency,
+            "detection_index": self.detection_index,
+            "reframed": self.reframed,
+        }
+
+
+def stale_objective_probe(
+    *,
+    pre_points: int = 8,
+    post_points: int = 8,
+    shift: float = 0.06,
+    noise: float = 0.0,
+    seed: int = 0,
+    drift: float = 0.01,
+    threshold: float = 0.05,
+) -> StaleProbe:
+    """Synthetic objective shift: measure CUSUM detection latency.
+
+    The stream is a stable dev-minus-heldout gap followed by a step of ``shift``.
+    ``reframed`` reports whether the loop would switch to strict acceptance
+    within the post-shift window.
+    """
+
+    if pre_points < 2 or post_points < 1:
+        raise DecouplingError("pre_points must be >= 2 and post_points >= 1")
+    if noise < 0.0:
+        raise DecouplingError("noise must be >= 0")
+    rng = random.Random(seed)
+    gaps = [rng.uniform(-noise, noise) for _ in range(pre_points)]
+    gaps.extend(shift + rng.uniform(-noise, noise) for _ in range(post_points))
+    points = [(0.5 + gap, 0.5) for gap in gaps]
+    result = cusum(points, drift=drift, threshold=threshold, baseline=0.0)
+    if result.first_flag is None or result.first_flag <= pre_points:
+        return StaleProbe(pre_points, post_points, shift, None, None, False)
+    latency = result.first_flag - pre_points
+    return StaleProbe(
+        pre_points, post_points, shift, latency, result.first_flag, latency <= post_points
+    )

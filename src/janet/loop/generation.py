@@ -34,7 +34,7 @@ from janet.harness.mutate import ProposalError, build_feedback, propose_mutation
 from janet.harness.operators import classify_operator
 from janet.harness.spec import SEED_HARNESS, HarnessSpec
 from janet.llm import LLMClient
-from janet.loop.decoupling import Decoupling, detect
+from janet.loop.decoupling import assess
 from janet.preempt import StopCheck
 
 
@@ -526,7 +526,7 @@ def run_loop(
             anchor_score=seed.anchor_score,
         )
         results: list[GenerationResult] = []
-        decoupling: Decoupling = detect([])
+        decoupling, cusum_state = assess([])
         for generation in range(1, generations + 1):
             if governor.should_yield():
                 time.sleep(5.0)
@@ -542,7 +542,7 @@ def run_loop(
                 limit=limit,
                 fingerprint=fingerprint,
                 dev_suite=dev_suite,
-                strict_heldout=decoupling.flagged,
+                strict_heldout=decoupling.flagged or cusum_state.flagged,
                 stop=stop,
                 bandit=bandit,
                 memory=memory,
@@ -551,8 +551,12 @@ def run_loop(
             bandit.save(config.paths.bandit.expanduser())
             results.append(result)
             log.emit("generation.finished", **result.to_dict())
-            decoupling = detect(archive.heldout_points())
-            log.emit("decoupling.checked", **decoupling.to_dict())
+            decoupling, cusum_state = assess(archive.heldout_points())
+            log.emit(
+                "decoupling.checked",
+                **decoupling.to_dict(),
+                cusum=cusum_state.to_dict(),
+            )
             # Persist after every generation so an interrupted overnight run keeps its work.
             (run_dir / "generations.json").write_text(
                 json.dumps([item.to_dict() for item in results], indent=2) + "\n",
