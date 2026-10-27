@@ -117,8 +117,10 @@ In plain words (`src/janet/loop/generation.py`):
 
 - **Parent** = the latest accepted notebook. The archive calls this a greedy
   hill-climb: lineage moves forward only on verified improvement.
-- **Idea** = the local model proposes one change: rewrite the prompt, add a
-  skill, change the budget, or prompt + skill together.
+- **Idea** = the local model proposes one scoped change: rewrite the prompt,
+  add a skill, revise a skill, change the budget, change the memory policy, or
+  prompt + skill together. The proposer may not exceed its chosen arm, and the
+  loop rejects any proposal that does.
 - **Checks** (`src/janet/harness/mutate.py`): the edit must actually change
   behavior; it may not name a benchmark task or function; a new skill's trigger
   words must really appear in task text, otherwise the skill is "inert" and
@@ -285,6 +287,7 @@ What is built versus planned:
 | P5.2 admission gates (task-name, unsafe-text, inert/generic triggers, tests) | |
 | P5.3 deterministic retrieval (BM25, caps, token budget, guard, logging) | |
 | P5.4 consolidation (dedupe, promote, retire, cap; daemon job) | |
+| P6.1 six operator arms + cost-aware reward v3 | |
 | Headroom task family + `janet bench headroom` gate | |
 
 The next lever is not "run more generations". It is a harder benchmark with

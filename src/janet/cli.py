@@ -47,7 +47,7 @@ from janet.loop.generation import LoopError, run_loop
 from janet.memory import (
     LessonRecord,
     MemoryError,
-    MemoryRetriever,
+    MemoryPolicyProvider,
     ProcessMemory,
     SkillRecord,
     consolidate,
@@ -424,12 +424,12 @@ def _memory_retriever(
     dev: Sequence[Task],
     anchor: Sequence[Task],
     override: str | None,
-) -> tuple[MemoryRetriever | None, ProcessMemory | None]:
+) -> tuple[MemoryPolicyProvider | None, ProcessMemory | None]:
     enabled = config.memory.enabled if override is None else override == "on"
     if not enabled:
         return None, None
     store = ProcessMemory(config.paths.memory.expanduser())
-    retriever = MemoryRetriever(
+    provider = MemoryPolicyProvider(
         store,
         forbidden=forbidden_terms((*dev, *anchor)),
         top_skills=config.memory.top_skills,
@@ -437,7 +437,7 @@ def _memory_retriever(
         max_prompt_tokens=config.memory.max_prompt_tokens,
         min_success=config.memory.min_success,
     )
-    return retriever, store
+    return provider, store
 
 
 def _cmd_archive(args: argparse.Namespace) -> int:

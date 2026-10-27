@@ -47,7 +47,7 @@ class FakeLoopClient:
                         "name": "import-discipline",
                         "system_prompt": _MUTATION_PROMPT,
                         "max_attempts": 3,
-                        "samples_per_attempt": 1,
+                        "samples_per_attempt": 3,
                         "mutation_note": "add import discipline",
                     }
                 ),
@@ -272,7 +272,7 @@ def test_paired_parent_remeasure_blocks_a_stale_baseline(tmp_path: Path, budget:
         assert result.dev_score == 1.0
         assert not result.improved
         assert not result.promoted
-        assert result.operator == "prompt+budget"  # fake proposer also drops samples 3 -> 1
+        assert result.operator == "prompt"
         seed = archive.get(SEED_HARNESS.hash)
         assert seed is not None
         assert seed.dev_score == 0.5  # running mean of the stale 0.0 and the fresh 1.0

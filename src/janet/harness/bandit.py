@@ -29,28 +29,49 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-OPERATORS: tuple[str, ...] = ("prompt", "skill", "budget", "prompt+skill")
+OPERATORS: tuple[str, ...] = (
+    "prompt",
+    "skill_add",
+    "skill_revise",
+    "budget",
+    "memory_policy",
+    "prompt+skill",
+)
 
 # Bump when the reward definition changes; old state files are discarded.
-REWARD_VERSION = 2
+REWARD_VERSION = 3
 _HELDOUT_EPSILON = 0.01
+_COST_WEIGHT = 0.10
 
 OPERATOR_INSTRUCTIONS: dict[str, str] = {
     "prompt": (
-        "Change only the system_prompt. Keep the skill library and the repair "
-        "budget identical. Address a failure mode as a general rule."
+        "Change only the system_prompt. Keep the skill library, the repair "
+        "budget, and the memory_policy identical. Address a failure mode as a "
+        "general rule."
     ),
-    "skill": (
-        "Change only the skills list: add or revise exactly one skill (name, "
-        "triggers, rule). Keep the system_prompt and the repair budget identical."
+    "skill_add": (
+        "Change only the skills list by adding exactly one new skill "
+        "(name, triggers, rule). Keep every existing skill, the system_prompt, "
+        "the repair budget, and the memory_policy identical."
+    ),
+    "skill_revise": (
+        "Revise exactly one existing skill (same name; change its triggers "
+        "and/or rule). Do not add or remove skills. Keep the system_prompt, "
+        "the repair budget, and the memory_policy identical."
     ),
     "budget": (
         "Change only max_attempts and/or samples_per_attempt. Keep the system "
-        "prompt and the skills identical."
+        "prompt, the skills, and the memory_policy identical."
+    ),
+    "memory_policy": (
+        "Change only the memory_policy object: set enabled=true and choose "
+        "top_skills (0..10), top_lessons (0..20), max_prompt_tokens (1..1200), "
+        "and min_success (0..1). Keep the system_prompt, skills, and repair "
+        "budget identical."
     ),
     "prompt+skill": (
-        "Rewrite the system_prompt and add or revise exactly one skill. Keep the "
-        "repair budget identical."
+        "Rewrite the system_prompt and add or revise exactly one skill. Keep "
+        "the repair budget and the memory_policy identical."
     ),
 }
 
@@ -65,16 +86,23 @@ class BanditError(ValueError):
 class ArmStats:
     pulls: int = 0
     total_reward: float = 0.0
+    total_cost: float = 0.0
 
     @property
     def mean(self) -> float:
         return self.total_reward / self.pulls if self.pulls else 0.0
+
+    @property
+    def mean_cost(self) -> float:
+        return self.total_cost / self.pulls if self.pulls else 0.0
 
     def to_dict(self) -> dict[str, object]:
         return {
             "pulls": self.pulls,
             "total_reward": round(self.total_reward, 6),
             "mean_reward": round(self.mean, 6),
+            "total_cost": round(self.total_cost, 6),
+            "mean_cost": round(self.mean_cost, 6),
         }
 
 
@@ -116,12 +144,15 @@ class BanditState:
                 best_name = name
         return best_name
 
-    def record(self, arm: str, reward: float) -> None:
+    def record(self, arm: str, reward: float, cost: float = 0.0) -> None:
         if arm not in OPERATORS:
             raise BanditError(f"unknown operator arm: {arm}")
+        if cost < 0.0:
+            raise BanditError("cost must be >= 0")
         stats = self._stats(arm)
         stats.pulls += 1
         stats.total_reward += reward
+        stats.total_cost += cost
         self.updated_at = datetime.now(UTC).isoformat()
 
     def to_dict(self) -> dict[str, object]:
@@ -179,12 +210,25 @@ class BanditState:
 def _arm_from(entry: dict[str, Any]) -> ArmStats:
     pulls = entry.get("pulls")
     total = entry.get("total_reward")
+    cost = entry.get("total_cost")
     return ArmStats(
         pulls=pulls if isinstance(pulls, int) and not isinstance(pulls, bool) and pulls >= 0 else 0,
         total_reward=(
             float(total) if isinstance(total, (int, float)) and not isinstance(total, bool) else 0.0
         ),
+        total_cost=(
+            float(cost) if isinstance(cost, (int, float)) and not isinstance(cost, bool) else 0.0
+        ),
     )
+
+
+def _cost_penalty(cost: float, parent_cost: float) -> float:
+    """Penalize extra eval cost relative to the paired parent, capped at 1x."""
+
+    if cost <= 0.0 or parent_cost <= 0.0:
+        return 0.0
+    extra = max(0.0, (cost - parent_cost) / parent_cost)
+    return _COST_WEIGHT * min(1.0, extra)
 
 
 def reward_for(
@@ -195,40 +239,48 @@ def reward_for(
     parent_anchor: float | None,
     heldout_score: float | None = None,
     parent_heldout: float | None = None,
+    strict_blocked: bool = False,
+    cost: float = 0.0,
+    parent_cost: float = 0.0,
 ) -> float:
-    """Shape the paired gate's outcome into a bandit reward.
+    """Shape the paired gate's outcome into a bandit reward (v3).
 
     The held-out anchor score (anchor tasks the dev split never contained) is
-    the capability signal when both sides have it. A total-anchor gain that does
-    not move the held-out score is only a quarter reward; a held-out regression
-    is penalized even if the total anchor improved. The fresh split is never
-    used here, so it stays an unbiased confirmation set.
+    the capability signal when both sides have it. The fresh split is never
+    used here, so it stays an unbiased confirmation set. Extra evaluation cost
+    relative to the paired parent is subtracted from every outcome.
     """
 
     if error is not None:
         return -0.25
-    if anchor_score is None:
+    if strict_blocked:
+        base = -0.10
+    elif anchor_score is None:
         # The dev-floor gate withholding the anchor is no evidence about the
         # operator; it only consumed compute.
-        return -0.05
-    if heldout_score is not None and parent_heldout is not None:
+        base = -0.05
+    elif heldout_score is not None and parent_heldout is not None:
         delta = heldout_score - parent_heldout
         if delta > _HELDOUT_EPSILON:
-            return 1.0 if improved else 0.5
-        if delta < -_HELDOUT_EPSILON:
-            return -0.25 if improved else -0.5
-        return 0.25 if improved else 0.0
+            base = 1.0 if improved else 0.5
+        elif delta < -_HELDOUT_EPSILON:
+            base = -0.25 if improved else -0.5
+        else:
+            base = 0.25 if improved else 0.0
     # Fallback for an old variant without a held-out sample.
-    if improved:
-        return 1.0
-    if parent_anchor is None:
-        return 0.0
-    delta = anchor_score - parent_anchor
-    if delta > _TIE_EPSILON:
-        return 0.5
-    if delta < -_TIE_EPSILON:
-        return -0.5
-    return 0.0
+    elif improved:
+        base = 1.0
+    elif parent_anchor is None:
+        base = 0.0
+    else:
+        delta = anchor_score - parent_anchor
+        if delta > _TIE_EPSILON:
+            base = 0.5
+        elif delta < -_TIE_EPSILON:
+            base = -0.5
+        else:
+            base = 0.0
+    return base - _cost_penalty(cost, parent_cost)
 
 
 def format_bandit(state: BanditState) -> str:
@@ -239,6 +291,7 @@ def format_bandit(state: BanditState) -> str:
         stats = state.arms.get(name, ArmStats())
         lines.append(
             f"{name:12} pulls={stats.pulls:3d} "
-            f"mean={stats.mean:+.3f} total={stats.total_reward:+.3f}"
+            f"mean={stats.mean:+.3f} total={stats.total_reward:+.3f} "
+            f"cost={stats.mean_cost:.1f}"
         )
     return "\n".join(lines)

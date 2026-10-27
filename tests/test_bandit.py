@@ -36,15 +36,14 @@ def test_choose_exploits_the_best_mean_without_exploration() -> None:
     state = BanditState.fresh()
     for name in OPERATORS:
         state.record(name, 0.0)
-    state.record("skill", 1.0)
-    assert state.choose(0.0) == "skill"
+    state.record("skill_add", 1.0)
+    assert state.choose(0.0) == "skill_add"
 
 
 def test_exploration_bonus_favours_a_less_pulled_arm() -> None:
     state = BanditState.fresh()
-    state.arms["prompt"] = ArmStats(pulls=10, total_reward=5.0)
-    state.arms["skill"] = ArmStats(pulls=10, total_reward=5.0)
-    state.arms["budget"] = ArmStats(pulls=10, total_reward=5.0)
+    for name in OPERATORS:
+        state.arms[name] = ArmStats(pulls=10, total_reward=5.0)
     state.arms["prompt+skill"] = ArmStats(pulls=1, total_reward=0.0)
     assert state.choose(2.0) == "prompt+skill"
 
@@ -66,22 +65,30 @@ def test_negative_exploration_and_unknown_arm_are_rejected() -> None:
 
 def test_record_updates_the_policy() -> None:
     state = BanditState.fresh()
-    state.record("prompt", 1.0)
-    state.record("prompt", -0.5)
+    state.record("prompt", 1.0, cost=10.0)
+    state.record("prompt", -0.5, cost=30.0)
     stats = state.arms["prompt"]
     assert stats.pulls == 2
     assert stats.mean == pytest.approx(0.25)
+    assert stats.total_cost == pytest.approx(40.0)
+    assert stats.mean_cost == pytest.approx(20.0)
     assert state.updated_at
+
+
+def test_record_rejects_negative_cost() -> None:
+    state = BanditState.fresh()
+    with pytest.raises(BanditError, match="cost"):
+        state.record("prompt", 1.0, cost=-1.0)
 
 
 def test_save_load_round_trip(tmp_path: Path) -> None:
     path = tmp_path / "bandit.json"
     state = BanditState.fresh()
-    state.record("skill", 0.5)
+    state.record("skill_add", 0.5)
     state.save(path)
     loaded = BanditState.load(path)
-    assert loaded.arms["skill"].pulls == 1
-    assert loaded.arms["skill"].mean == pytest.approx(0.5)
+    assert loaded.arms["skill_add"].pulls == 1
+    assert loaded.arms["skill_add"].mean == pytest.approx(0.5)
     assert loaded.updated_at == state.updated_at
     assert loaded.to_dict()["total_pulls"] == 1
     assert loaded.to_dict()["reward_version"] == REWARD_VERSION
@@ -308,6 +315,53 @@ def test_load_discards_a_state_from_another_reward_version(tmp_path: Path) -> No
 )
 def test_reward_shaping(kwargs: dict[str, object], expected: float) -> None:
     assert reward_for(**kwargs) == expected  # type: ignore[arg-type]
+
+
+def test_reward_v3_strict_block_and_cost_penalty() -> None:
+    strict = reward_for(
+        improved=True,
+        error=None,
+        anchor_score=0.8,
+        parent_anchor=0.5,
+        heldout_score=0.5,
+        parent_heldout=0.5,
+        strict_blocked=True,
+    )
+    assert strict == pytest.approx(-0.10)
+    base = reward_for(
+        improved=True,
+        error=None,
+        anchor_score=0.8,
+        parent_anchor=0.7,
+        heldout_score=0.6,
+        parent_heldout=0.5,
+    )
+    penalized = reward_for(
+        improved=True,
+        error=None,
+        anchor_score=0.8,
+        parent_anchor=0.7,
+        heldout_score=0.6,
+        parent_heldout=0.5,
+        cost=150.0,
+        parent_cost=100.0,
+    )
+    assert penalized == pytest.approx(base - 0.05)
+
+
+def test_reward_is_monotone_in_heldout_delta() -> None:
+    penalties = [
+        reward_for(
+            improved=True,
+            error=None,
+            anchor_score=0.8,
+            parent_anchor=0.5,
+            heldout_score=0.5 + delta,
+            parent_heldout=0.5,
+        )
+        for delta in (-0.2, -0.05, 0.0, 0.05, 0.2)
+    ]
+    assert penalties == sorted(penalties)
 
 
 def test_to_dict_and_format_are_inspectable() -> None:

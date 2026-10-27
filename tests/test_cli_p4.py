@@ -148,13 +148,13 @@ def test_bandit_command_reports_the_learned_policy(
     config = _config(tmp_path)
     monkeypatch.setattr("janet.cli._load", lambda _path: config)
     state = BanditState.fresh()
-    state.record("skill", 0.5)
+    state.record("skill_add", 0.5)
     state.save(config.paths.bandit)
     assert main(["bandit", "--json"]) == 0
     payload = json.loads(capsys.readouterr().out)
     assert payload["total_pulls"] == 1
     assert main(["bandit"]) == 0
-    assert "skill" in capsys.readouterr().out
+    assert "skill_add" in capsys.readouterr().out
 
 
 def test_daemon_status_returns_three_when_stopped(

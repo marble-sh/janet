@@ -27,6 +27,66 @@ class HarnessError(ValueError):
 
 
 @dataclass(frozen=True, slots=True)
+class MemoryPolicy:
+    """Per-variant retrieval policy (P5.3/P6.1). Off unless a variant opts in."""
+
+    enabled: bool = False
+    top_skills: int = 3
+    top_lessons: int = 5
+    max_prompt_tokens: int = 1200
+    min_success: float = 0.0
+
+    def validate(self) -> None:
+        if not 0 <= self.top_skills <= 10:
+            raise HarnessError("memory_policy.top_skills must be 0..10")
+        if not 0 <= self.top_lessons <= 20:
+            raise HarnessError("memory_policy.top_lessons must be 0..20")
+        if not 1 <= self.max_prompt_tokens <= 1200:
+            raise HarnessError("memory_policy.max_prompt_tokens must be 1..1200")
+        if not 0.0 <= self.min_success <= 1.0:
+            raise HarnessError("memory_policy.min_success must be in [0, 1]")
+        if self.enabled and self.top_skills + self.top_lessons == 0:
+            raise HarnessError("an enabled memory_policy needs at least one retrieval slot")
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "enabled": self.enabled,
+            "top_skills": self.top_skills,
+            "top_lessons": self.top_lessons,
+            "max_prompt_tokens": self.max_prompt_tokens,
+            "min_success": self.min_success,
+        }
+
+    @classmethod
+    def from_dict(cls, data: Any) -> MemoryPolicy:
+        if not isinstance(data, dict):
+            raise HarnessError("memory_policy must be an object")
+        allowed = set(cls.__dataclass_fields__)
+        unknown = set(data) - allowed
+        if unknown:
+            raise HarnessError(f"unknown memory_policy fields: {sorted(unknown)}")
+        values = {key: data.get(key, getattr(cls(), key)) for key in allowed}
+        if not isinstance(values["enabled"], bool):
+            raise HarnessError("memory_policy.enabled must be a boolean")
+        for key in ("top_skills", "top_lessons", "max_prompt_tokens"):
+            value = values[key]
+            if not isinstance(value, int) or isinstance(value, bool):
+                raise HarnessError(f"memory_policy.{key} must be an integer")
+        success = values["min_success"]
+        if not isinstance(success, (int, float)) or isinstance(success, bool):
+            raise HarnessError("memory_policy.min_success must be a number")
+        policy = cls(
+            enabled=values["enabled"],
+            top_skills=int(values["top_skills"]),
+            top_lessons=int(values["top_lessons"]),
+            max_prompt_tokens=int(values["max_prompt_tokens"]),
+            min_success=float(success),
+        )
+        policy.validate()
+        return policy
+
+
+@dataclass(frozen=True, slots=True)
 class HarnessSpec:
     name: str
     system_prompt: str
@@ -35,6 +95,7 @@ class HarnessSpec:
     mutation_note: str = ""
     parent: str | None = None
     skills: tuple[Skill, ...] = ()
+    memory_policy: MemoryPolicy = MemoryPolicy()
 
     def validate(self) -> None:
         name = self.name.strip()
@@ -55,6 +116,7 @@ class HarnessSpec:
             parse_skills([skill.to_dict() for skill in self.skills])
         except SkillError as exc:
             raise HarnessError(str(exc)) from exc
+        self.memory_policy.validate()
 
     def content_dict(self) -> dict[str, Any]:
         content: dict[str, Any] = {
@@ -66,6 +128,8 @@ class HarnessSpec:
             content["skills"] = sorted(
                 (skill.to_dict() for skill in self.skills), key=lambda item: item["name"]
             )
+        if self.memory_policy != MemoryPolicy():
+            content["memory_policy"] = self.memory_policy.to_dict()
         return content
 
     @property
@@ -99,6 +163,7 @@ class HarnessSpec:
             "mutation_note",
             "parent",
             "skills",
+            "memory_policy",
         }
         unknown = set(data) - allowed
         if unknown:
@@ -121,6 +186,10 @@ class HarnessSpec:
             skills = parse_skills(data.get("skills"))
         except SkillError as exc:
             raise HarnessError(str(exc)) from exc
+        raw_policy = data.get("memory_policy")
+        memory_policy = (
+            MemoryPolicy.from_dict(raw_policy) if raw_policy is not None else MemoryPolicy()
+        )
         spec = cls(
             name=name,
             system_prompt=prompt,
@@ -129,6 +198,7 @@ class HarnessSpec:
             mutation_note=note,
             parent=parent_value,
             skills=skills,
+            memory_policy=memory_policy,
         )
         spec.validate()
         return spec

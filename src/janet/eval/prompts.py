@@ -11,6 +11,7 @@ from janet.eval.task import Case, Task
 
 if TYPE_CHECKING:
     from janet.harness.skills import Skill
+    from janet.harness.spec import MemoryPolicy
 
 SYSTEM_FUNCTION = (
     "You are a careful Python engineer. Return only the complete corrected "
@@ -73,6 +74,12 @@ class MemorySource(Protocol):
     def context_for(
         self, task: Task, *, attempt: int = 1, last_error: str | None = None
     ) -> MemoryContext: ...
+
+
+class MemoryProvider(Protocol):
+    """Builds a retriever for a variant's memory policy, or none when disabled."""
+
+    def for_policy(self, policy: MemoryPolicy) -> MemorySource | None: ...
 
 
 def compose_system(

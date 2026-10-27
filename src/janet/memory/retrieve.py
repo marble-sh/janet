@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 from janet.eval.prompts import MemoryContext, estimate_tokens
 from janet.eval.task import Task
 from janet.harness.guard import find_text_leaks
+from janet.harness.spec import MemoryPolicy
 from janet.memory.store import LessonRecord, ProcessMemory, SkillRecord, SubjectKind
 
 _QUERY_RE = re.compile(r"[a-zA-Z0-9_]+")
@@ -316,4 +317,43 @@ class MemoryRetriever:
         return " ".join(terms)
 
 
-__all__ = ["MemoryRetriever"]
+class MemoryPolicyProvider:
+    """Build a retriever for a harness variant's ``memory_policy``."""
+
+    def __init__(
+        self,
+        memory: ProcessMemory,
+        *,
+        forbidden: Iterable[str] = (),
+        top_skills: int = 3,
+        top_lessons: int = 5,
+        max_prompt_tokens: int = 1200,
+        min_success: float = 0.0,
+    ) -> None:
+        if top_skills < 0 or top_lessons < 0:
+            raise ValueError("top_skills and top_lessons must be >= 0")
+        if max_prompt_tokens < 1:
+            raise ValueError("max_prompt_tokens must be >= 1")
+        if not 0.0 <= min_success <= 1.0:
+            raise ValueError("min_success must be in [0, 1]")
+        self._memory = memory
+        self._forbidden = tuple(forbidden)
+        self._top_skills = top_skills
+        self._top_lessons = top_lessons
+        self._max_tokens = max_prompt_tokens
+        self._min_success = min_success
+
+    def for_policy(self, policy: MemoryPolicy) -> MemoryRetriever | None:
+        if not policy.enabled:
+            return None
+        return MemoryRetriever(
+            self._memory,
+            forbidden=self._forbidden,
+            top_skills=min(policy.top_skills, self._top_skills),
+            top_lessons=min(policy.top_lessons, self._top_lessons),
+            max_prompt_tokens=min(policy.max_prompt_tokens, self._max_tokens),
+            min_success=max(policy.min_success, self._min_success),
+        )
+
+
+__all__ = ["MemoryPolicyProvider", "MemoryRetriever"]

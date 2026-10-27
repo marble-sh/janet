@@ -22,7 +22,7 @@ from typing import Any
 from janet.bench.baseline import run_baseline
 from janet.bench.repair_bench import RepairBenchReport, run_repair_benchmark
 from janet.config import Config
-from janet.eval.prompts import MemorySource
+from janet.eval.prompts import MemoryProvider
 from janet.eval.task import Task
 from janet.events import EventLog
 from janet.governor import ResourceGovernor
@@ -30,6 +30,7 @@ from janet.harness.archive import Archive, ArchiveError, HarnessRecord
 from janet.harness.bandit import OPERATOR_INSTRUCTIONS, BanditState, reward_for
 from janet.harness.guard import forbidden_terms, inert_new_skills, trigger_vocabulary
 from janet.harness.mutate import ProposalError, build_feedback, propose_mutation
+from janet.harness.operators import classify_operator
 from janet.harness.spec import SEED_HARNESS, HarnessSpec
 from janet.llm import LLMClient
 from janet.loop.decoupling import Decoupling, detect
@@ -99,22 +100,6 @@ def heldout_score(report: Any, dev_ids: set[str]) -> float | None:
     return sum(scores) / len(scores) if scores else None
 
 
-def classify_operator(parent: HarnessSpec, candidate: HarnessSpec) -> str:
-    """Which part of the harness a mutation touched (input to the P6 bandit)."""
-
-    changed: list[str] = []
-    if candidate.system_prompt.strip() != parent.system_prompt.strip():
-        changed.append("prompt")
-    if candidate.content_dict().get("skills") != parent.content_dict().get("skills"):
-        changed.append("skills")
-    if (candidate.max_attempts, candidate.samples_per_attempt) != (
-        parent.max_attempts,
-        parent.samples_per_attempt,
-    ):
-        changed.append("budget")
-    return "+".join(changed) or "none"
-
-
 def _seed(
     archive: Archive,
     client: LLMClient,
@@ -128,7 +113,7 @@ def _seed(
     limit: int | None,
     dev_suite: str = "",
     stop: StopCheck | None = None,
-    memory: MemorySource | None = None,
+    memory: MemoryProvider | None = None,
 ) -> HarnessRecord:
     existing = archive.seed()
     if existing is not None:
@@ -150,7 +135,7 @@ def _seed(
         samples_per_attempt=seed.samples_per_attempt,
         system_prompt=seed.system_prompt,
         skills=seed.skills,
-        memory=memory,
+        memory=(memory.for_policy(seed.memory_policy) if memory is not None else None),
         stop=stop,
         compare=False,
     )
@@ -228,7 +213,7 @@ def run_generation(
     strict_heldout: bool = False,
     stop: StopCheck | None = None,
     bandit: BanditState | None = None,
-    memory: MemorySource | None = None,
+    memory: MemoryProvider | None = None,
 ) -> GenerationResult:
     parent = archive.current()
     if parent is None:
@@ -254,6 +239,7 @@ def run_generation(
             ),
             max_retries=config.loop.max_attempts + 1,
             focus=focus,
+            operator=arm,
         )
     except ProposalError as exc:
         reward = reward_for(improved=False, error=str(exc), anchor_score=None, parent_anchor=None)
@@ -275,7 +261,7 @@ def run_generation(
         samples_per_attempt=parent.spec.samples_per_attempt,
         system_prompt=parent.spec.system_prompt,
         skills=parent.spec.skills,
-        memory=memory,
+        memory=(memory.for_policy(parent.spec.memory_policy) if memory is not None else None),
         stop=stop,
         compare=False,
     )
@@ -294,7 +280,7 @@ def run_generation(
         samples_per_attempt=candidate.samples_per_attempt,
         system_prompt=candidate.system_prompt,
         skills=candidate.skills,
-        memory=memory,
+        memory=(memory.for_policy(candidate.memory_policy) if memory is not None else None),
         stop=stop,
         compare=False,
     )
@@ -355,6 +341,7 @@ def run_generation(
         "parent_heldout": parent_heldout,
         "strict_blocked": strict_blocked,
         "memory_on": memory is not None,
+        "memory_policy": candidate.memory_policy.to_dict(),
         "memory_ids": sorted(
             dict.fromkeys(item for row in dev_report.rows for item in row.memory_ids)
         ),
@@ -366,10 +353,13 @@ def run_generation(
         parent_anchor=parent_anchor,
         heldout_score=heldout,
         parent_heldout=parent_heldout,
+        strict_blocked=strict_blocked,
+        cost=float(dev_report.summary.total_eval_tokens),
+        parent_cost=float(parent_report.summary.total_eval_tokens),
     )
     details["reward"] = reward
     if bandit is not None and arm is not None:
-        bandit.record(arm, reward)
+        bandit.record(arm, reward, cost=float(dev_report.summary.total_eval_tokens))
     archive.add(candidate, dev_score=dev_score, anchor_score=anchor_score, details=details)
     if improved:
         archive.accept(candidate.hash)
@@ -409,7 +399,7 @@ def run_loop(
     anchor_root: Path | None = None,
     dev_suite: str = "",
     stop: StopCheck | None = None,
-    memory: MemorySource | None = None,
+    memory: MemoryProvider | None = None,
 ) -> tuple[GenerationResult, ...]:
     if generations < 1:
         raise LoopError("generations must be >= 1")

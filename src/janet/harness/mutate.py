@@ -7,6 +7,7 @@ from collections.abc import Callable, Sequence
 
 from janet.bench.repair_bench import RepairBenchReport
 from janet.harness.guard import find_leaks
+from janet.harness.operators import OperatorError, validate_operator
 from janet.harness.spec import HarnessError, HarnessSpec
 from janet.llm import LLMClient, LLMError
 
@@ -87,6 +88,9 @@ def _mutation_prompt(
         "  lowercase words/phrases; the rule is injected only when a trigger appears",
         "  in the task text. rule: 20..400 characters.",
         "- max_attempts: 1..5; samples_per_attempt: 1..4.",
+        "- memory_policy: {enabled, top_skills (0..10), top_lessons (0..20),",
+        "  max_prompt_tokens (1..1200), min_success (0..1)}; omit it to keep the",
+        "  parent policy.",
         "- mutation_note: <= 500 characters, explaining the hypothesis.",
         "- name: a short label for this variant.",
         "- Describe the failure MODE as a general rule (for example 'validate",
@@ -114,6 +118,7 @@ def propose_mutation(
     inert_check: Callable[[HarnessSpec], Sequence[str]] | None = None,
     max_retries: int = 2,
     focus: str | None = None,
+    operator: str | None = None,
 ) -> HarnessSpec:
     error: str | None = None
     for _ in range(max_retries + 1):
@@ -129,6 +134,9 @@ def propose_mutation(
             if isinstance(data, dict) and "skills" not in data:
                 # An omitted key means "unchanged", not "delete the library".
                 data["skills"] = [skill.to_dict() for skill in parent.skills]
+            if isinstance(data, dict) and "memory_policy" not in data:
+                # An omitted key means "unchanged", not "reset to off".
+                data["memory_policy"] = parent.memory_policy.to_dict()
             candidate = HarnessSpec.from_dict(data, parent=parent.hash)
         except (LLMError, json.JSONDecodeError, HarnessError) as exc:
             error = str(exc)
@@ -136,6 +144,12 @@ def propose_mutation(
         if candidate.hash == parent.hash:
             error = "the proposal did not change behavior; make a real change"
             continue
+        if operator is not None:
+            try:
+                validate_operator(parent, candidate, operator)
+            except OperatorError as exc:
+                error = str(exc)
+                continue
         leaks = find_leaks(candidate, forbidden)
         if leaks:
             error = f"the proposal names benchmark identifiers {list(leaks)}; use general rules"

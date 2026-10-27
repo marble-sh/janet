@@ -24,7 +24,10 @@ checks) and deterministic retrieval (BM25 with hard caps, a prompt-token
 budget, the guard, and a retrieval log) are in place. Consolidation merges
 near-duplicates, promotes well-supported lessons to skill candidates, retires
 stale or failing skills, and enforces the store caps. A `headroom` task family
-restores difficulty to the dev/anchor/fresh splits. P6 (meta-loop) is next. See
+restores difficulty to the dev/anchor/fresh splits. P6 has started: six scoped
+operator arms (prompt, skill add, skill revise, budget, memory policy, prompt +
+skill) share a cost-aware reward v3. P5's amnesia test and the P6 frontier and
+e-process gate are next. See
 [`docs/plans/plan-rsi-janet-2026-10-23.md`](docs/plans/plan-rsi-janet-2026-10-23.md)
 and [`docs/plans/plan-p5-p6-2026-10-26.md`](docs/plans/plan-p5-p6-2026-10-26.md).
 
@@ -72,7 +75,8 @@ uv run janet evolve
 uv run janet calibrate --split dev --limit 4
 
 # Inspect the P6 operator bandit: which kind of mutation has been earning its
-# compute.
+# compute. Arms: prompt, skill_add, skill_revise, budget, memory_policy,
+# prompt+skill.
 uv run janet bandit
 ```
 

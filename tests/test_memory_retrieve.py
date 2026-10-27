@@ -13,8 +13,9 @@ from janet.eval.prompts import SYSTEM_INTEGRITY, MemoryContext, compose_system
 from janet.eval.repair import run_repair
 from janet.eval.task import Task, load_suite
 from janet.governor import ResourceGovernor
+from janet.harness.spec import MemoryPolicy
 from janet.llm import LLMClient, LLMResponse
-from janet.memory import MemoryRetriever, ProcessMemory
+from janet.memory import MemoryPolicyProvider, MemoryRetriever, ProcessMemory
 from janet.probe import Budget
 
 
@@ -164,6 +165,17 @@ def test_cross_family_requires_an_exact_failure_signature(memory: ProcessMemory)
     assert other in matched.lesson_ids
     missed = MemoryRetriever(memory).context_for(task, last_error="TimeError elsewhere")
     assert other not in missed.lesson_ids
+
+
+def test_provider_honors_the_variant_policy(memory: ProcessMemory) -> None:
+    _lesson(memory)
+    provider = MemoryPolicyProvider(memory, top_lessons=5)
+    assert provider.for_policy(MemoryPolicy(enabled=False)) is None
+    active = provider.for_policy(MemoryPolicy(enabled=True, top_skills=0, top_lessons=1))
+    assert active is not None
+    context = active.context_for(_task())
+    assert len(context.lesson_ids) == 1
+    assert context.skill_ids == ()
 
 
 def test_compose_system_appends_memory_but_not_for_integrity() -> None:

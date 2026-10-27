@@ -12,7 +12,7 @@ from janet.memory.consolidate import (
     ConsolidationReport,
     consolidate,
 )
-from janet.memory.retrieve import MemoryRetriever
+from janet.memory.retrieve import MemoryPolicyProvider, MemoryRetriever
 from janet.memory.store import (
     SCHEMA_VERSION,
     EvidenceRecord,
@@ -32,6 +32,7 @@ __all__ = [
     "EvidenceRecord",
     "LessonRecord",
     "MemoryError",
+    "MemoryPolicyProvider",
     "MemoryRetriever",
     "ProcessMemory",
     "SkillRecord",

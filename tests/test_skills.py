@@ -17,10 +17,10 @@ from janet.harness.guard import (
     trigger_vocabulary,
 )
 from janet.harness.mutate import ProposalError, propose_mutation
+from janet.harness.operators import classify_operator
 from janet.harness.skills import MAX_SKILLS, Skill, SkillError, parse_skills
-from janet.harness.spec import SEED_HARNESS, HarnessError, HarnessSpec
+from janet.harness.spec import SEED_HARNESS, HarnessError, HarnessSpec, MemoryPolicy
 from janet.llm import LLMClient, LLMResponse
-from janet.loop.generation import classify_operator
 
 RULE = "Validate inputs before computing and raise ValueError for invalid ranges."
 
@@ -142,18 +142,24 @@ def test_classify_operator() -> None:
     base = HarnessSpec(name="p", system_prompt="A" * 50)
     assert classify_operator(base, base) == "none"
     assert classify_operator(base, HarnessSpec(name="c", system_prompt="B" * 50)) == "prompt"
-    assert (
-        classify_operator(base, HarnessSpec(name="c", system_prompt="A" * 50, skills=(skill(),)))
-        == "skills"
+    added = HarnessSpec(name="c", system_prompt="A" * 50, skills=(skill(),))
+    assert classify_operator(base, added) == "skill_add"
+    revised = HarnessSpec(
+        name="c",
+        system_prompt="A" * 50,
+        skills=(Skill(name="validate", triggers=("raise",), rule=RULE + " Check bounds."),),
     )
+    assert classify_operator(added, revised) == "skill_revise"
     assert (
         classify_operator(
             base, HarnessSpec(name="c", system_prompt="A" * 50, samples_per_attempt=2)
         )
         == "budget"
     )
+    policy = HarnessSpec(name="c", system_prompt="A" * 50, memory_policy=MemoryPolicy(enabled=True))
+    assert classify_operator(base, policy) == "memory_policy"
     both = HarnessSpec(name="c", system_prompt="B" * 50, max_attempts=2)
-    assert classify_operator(base, both) == "prompt+budget"
+    assert classify_operator(base, both) == "invalid"
 
 
 class ScriptedClient:
@@ -247,6 +253,48 @@ def test_omitted_skills_key_means_unchanged() -> None:
     spec = propose_mutation(cast(LLMClient, ScriptedClient([payload])), parent, "fb")
     assert spec.skills == parent.skills
     assert spec.system_prompt == "B" * 50
+
+
+def test_omitted_memory_policy_means_unchanged() -> None:
+    parent = HarnessSpec(
+        name="p",
+        system_prompt="A" * 50,
+        memory_policy=MemoryPolicy(enabled=True, top_skills=2),
+    )
+    payload = _payload(system_prompt="B" * 50, skills=[])
+    spec = propose_mutation(cast(LLMClient, ScriptedClient([payload])), parent, "fb")
+    assert spec.memory_policy == parent.memory_policy
+
+
+def test_operator_scope_is_enforced_by_the_proposer() -> None:
+    parent = HarnessSpec(name="p", system_prompt="A" * 50)
+    over = _payload(system_prompt="B" * 50, max_attempts=2, skills=[])
+    good = _payload(system_prompt="B" * 50, skills=[])
+    client = ScriptedClient([over, good])
+    spec = propose_mutation(cast(LLMClient, client), parent, "fb", operator="prompt")
+    assert spec.system_prompt == "B" * 50
+    assert "arm permits" in client.prompts[1]
+
+
+def test_memory_policy_arm_is_dispatchable() -> None:
+    parent = HarnessSpec(name="p", system_prompt="A" * 50)
+    payload = _payload(
+        system_prompt=parent.system_prompt,
+        skills=[],
+        memory_policy={
+            "enabled": True,
+            "top_skills": 2,
+            "top_lessons": 3,
+            "max_prompt_tokens": 800,
+            "min_success": 0.5,
+        },
+    )
+    spec = propose_mutation(
+        cast(LLMClient, ScriptedClient([payload])), parent, "fb", operator="memory_policy"
+    )
+    assert spec.memory_policy.enabled
+    assert spec.memory_policy.top_skills == 2
+    assert spec.memory_policy.max_prompt_tokens == 800
 
 
 def test_archive_dev_samples_form_a_running_mean(tmp_path: Path) -> None:
