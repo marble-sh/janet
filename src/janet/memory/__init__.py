@@ -7,6 +7,11 @@ from janet.memory.admit import (
     admit_lesson,
     admit_skill,
 )
+from janet.memory.consolidate import (
+    CONSOLIDATION_VERSION,
+    ConsolidationReport,
+    consolidate,
+)
 from janet.memory.retrieve import MemoryRetriever
 from janet.memory.store import (
     SCHEMA_VERSION,
@@ -19,9 +24,11 @@ from janet.memory.store import (
 
 __all__ = [
     "ADMISSION_VERSION",
+    "CONSOLIDATION_VERSION",
     "SCHEMA_VERSION",
     "AdmissionDecision",
     "AdmissionError",
+    "ConsolidationReport",
     "EvidenceRecord",
     "LessonRecord",
     "MemoryError",
@@ -30,4 +37,5 @@ __all__ = [
     "SkillRecord",
     "admit_lesson",
     "admit_skill",
+    "consolidate",
 ]

@@ -18,7 +18,7 @@ from typing import Any, Literal
 
 from janet.harness.skills import Skill, SkillError
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 SubjectKind = Literal["lesson", "skill"]
 StatusLike = str
 
@@ -284,6 +284,14 @@ CREATE TABLE IF NOT EXISTS retrieval_events (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS lesson_families (
+    lesson_id INTEGER NOT NULL REFERENCES lessons(id) ON DELETE CASCADE,
+    task_family TEXT NOT NULL,
+    successes INTEGER NOT NULL DEFAULT 0,
+    failures INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (lesson_id, task_family)
+);
+
 CREATE INDEX IF NOT EXISTS lessons_status_idx ON lessons(status, task_family);
 CREATE INDEX IF NOT EXISTS skills_status_idx ON skills(status);
 CREATE INDEX IF NOT EXISTS evidence_subject_idx ON evidence(subject_kind, subject_id);
@@ -366,10 +374,17 @@ class ProcessMemory:
             current = int(str(row["value"]))
         except ValueError as exc:
             raise MemoryError(f"invalid memory schema version {row['value']!r}") from exc
-        if current != SCHEMA_VERSION:
-            raise MemoryError(
-                f"unsupported memory schema version {current}; expected {SCHEMA_VERSION}"
+        if current == SCHEMA_VERSION:
+            return
+        if current == 1:
+            # v2 adds lesson_families, which the schema script has already created.
+            self._conn.execute(
+                "UPDATE memory_meta SET value = ? WHERE key = 'schema_version'",
+                (str(SCHEMA_VERSION),),
             )
+            self._conn.commit()
+            return
+        raise MemoryError(f"unsupported memory schema version {current}; expected {SCHEMA_VERSION}")
 
     def close(self) -> None:
         self._conn.close()
@@ -630,10 +645,15 @@ class ProcessMemory:
         *,
         success: bool,
         cost_tokens: int = 0,
+        task_family: str | None = None,
     ) -> None:
         table = self._table(subject_kind)
         if cost_tokens < 0:
             raise MemoryError("cost_tokens must be >= 0")
+        if task_family is not None and subject_kind == "skill":
+            raise MemoryError("task_family is only recorded for lessons")
+        if task_family is not None:
+            task_family = _text("task_family", task_family)
         now = _utc_now()
         if subject_kind == "lesson":
             cursor = self._conn.execute(
@@ -655,6 +675,37 @@ class ProcessMemory:
             )
         if cursor.rowcount == 0:
             raise MemoryError(f"unknown {subject_kind}: {subject_id}")
+        if subject_kind == "lesson" and task_family is not None:
+            self._conn.execute(
+                """
+                INSERT INTO lesson_families(lesson_id, task_family, successes, failures)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(lesson_id, task_family) DO UPDATE SET
+                    successes = successes + excluded.successes,
+                    failures = failures + excluded.failures
+                """,
+                (subject_id, task_family, int(success), int(not success)),
+            )
+        self._conn.commit()
+
+    def family_outcomes(self, lesson_id: int) -> dict[str, tuple[int, int]]:
+        """Per-family ``(successes, failures)`` recorded for a lesson."""
+
+        exists = self._conn.execute("SELECT 1 FROM lessons WHERE id = ?", (lesson_id,)).fetchone()
+        if exists is None:
+            raise MemoryError(f"unknown lesson: {lesson_id}")
+        rows = self._conn.execute(
+            "SELECT task_family, successes, failures FROM lesson_families "
+            "WHERE lesson_id = ? ORDER BY task_family",
+            (lesson_id,),
+        ).fetchall()
+        return {
+            str(row["task_family"]): (int(row["successes"]), int(row["failures"])) for row in rows
+        }
+
+    def vacuum(self) -> None:
+        self._conn.commit()
+        self._conn.execute("VACUUM")
         self._conn.commit()
 
     def record_evidence(

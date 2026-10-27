@@ -151,7 +151,7 @@ def test_persists_across_reopen(tmp_path: Path) -> None:
         store.set_status("lesson", lesson_id, "verified")
     with ProcessMemory(path) as reopened:
         assert reopened.search_lessons("timeout")[0].id == lesson_id
-        assert reopened.stats()["schema_version"] == 1
+        assert reopened.stats()["schema_version"] == 2
 
 
 def test_schema_is_idempotent(tmp_path: Path) -> None:
@@ -188,7 +188,7 @@ def test_health_reports_integrity_and_fts_parity(memory: ProcessMemory) -> None:
     payload = memory.health()
     assert payload["ok"] is True
     assert payload["integrity"] == "ok"
-    assert payload["schema_version"] == 1
+    assert payload["schema_version"] == 2
     assert payload["indexes"]["lessons"] == {"content": 1, "index": 1, "ok": True}
     assert payload["indexes"]["skills"] == {"content": 1, "index": 1, "ok": True}
 
@@ -213,3 +213,29 @@ def test_list_evidence_returns_newest_first(memory: ProcessMemory) -> None:
 def test_list_evidence_rejects_an_unknown_subject(memory: ProcessMemory) -> None:
     with pytest.raises(MemoryError, match="unknown skill"):
         memory.list_evidence("skill", "missing")
+
+
+def test_family_outcomes_are_recorded_per_family(memory: ProcessMemory) -> None:
+    lesson_id = _lesson(memory)
+    memory.record_outcome("lesson", lesson_id, success=True, task_family="code_repair")
+    memory.record_outcome("lesson", lesson_id, success=True, task_family="code_repair")
+    memory.record_outcome("lesson", lesson_id, success=False, task_family="parsing")
+    assert memory.family_outcomes(lesson_id) == {
+        "code_repair": (2, 0),
+        "parsing": (0, 1),
+    }
+
+
+def test_skill_outcomes_reject_task_family(memory: ProcessMemory) -> None:
+    skill_id = _skill(memory)
+    with pytest.raises(MemoryError, match="only recorded for lessons"):
+        memory.record_outcome("skill", skill_id, success=True, task_family="code_repair")
+
+
+def test_migrates_a_v1_database(tmp_path: Path) -> None:
+    path = tmp_path / "memory.sqlite3"
+    with ProcessMemory(path) as store:
+        store._conn.execute("UPDATE memory_meta SET value = '1' WHERE key = 'schema_version'")
+        store._conn.commit()
+    with ProcessMemory(path) as reopened:
+        assert reopened.stats()["schema_version"] == 2

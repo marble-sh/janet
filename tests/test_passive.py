@@ -7,7 +7,7 @@ from typing import Any
 
 from helpers import make_sign_task
 
-from janet.config import Config, DaemonConfig, PathsConfig
+from janet.config import Config, DaemonConfig, MemoryConfig, PathsConfig
 from janet.eval.evolve import load_evolved
 from janet.eval.task import Case, Task
 from janet.governor import ResourceGovernor
@@ -18,6 +18,7 @@ from janet.loop.passive import (
     SessionContext,
     _calibrate_once,
     _confirm_once,
+    _consolidate_once,
     _next_job,
     due,
     run_session,
@@ -225,6 +226,34 @@ def test_next_job_falls_back_to_the_interval_without_a_current_hash(tmp_path: Pa
     now = datetime(2026, 10, 25, tzinfo=UTC)
     state = PassiveState(current_hash="", last_confirm_at=None)
     assert _next_job(config, _context(task, fresh=True), state, 0, 0, 2000.0, now) == "confirm"
+
+
+def test_next_job_schedules_consolidation_when_memory_is_enabled(tmp_path: Path) -> None:
+    task = make_sign_task(tmp_path / "tasks")
+    now = datetime(2026, 10, 25, tzinfo=UTC)
+    config = Config(
+        paths=PathsConfig(memory=tmp_path / "memory.sqlite3"),
+        daemon=DaemonConfig(
+            generations_per_session=0,
+            evolve_per_session=0,
+            confirm_interval_hours=999.0,
+            calibrate_interval_hours=999.0,
+        ),
+        memory=MemoryConfig(enabled=True),
+    )
+    state = PassiveState(last_calibrate_at=now.isoformat())
+    assert _next_job(config, _context(task), state, 0, 0, 2000.0, now) == "consolidate"
+    state.last_consolidate_at = now.isoformat()
+    assert _next_job(config, _context(task), state, 0, 0, 2000.0, now) is None
+
+
+def test_consolidate_once_updates_state(tmp_path: Path) -> None:
+    config = Config(paths=PathsConfig(memory=tmp_path / "memory.sqlite3"))
+    state = PassiveState()
+    outcome = _consolidate_once(config, state)
+    assert outcome.job == "consolidate"
+    assert outcome.ok is True
+    assert state.last_consolidate_at is not None
 
 
 def test_confirm_without_a_fresh_split_is_a_noop(tmp_path: Path, budget: Budget) -> None:

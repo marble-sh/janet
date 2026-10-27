@@ -83,6 +83,8 @@ cpu_quota_percent = 300
 memory_max_gib = 10.0
 memory_high_gib = 8.0
 nice = 15
+# Merge/promote/retire/cap process memory this often (0 = every session).
+memory_consolidate_hours = 6.0
 
 [loop]
 max_generations = 24

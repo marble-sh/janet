@@ -138,6 +138,28 @@ def test_memory_retriever_respects_the_override(tmp_path: Path) -> None:
     store.close()
 
 
+def test_memory_consolidate_merges_and_reports(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    config = _memory_config(tmp_path)
+    with ProcessMemory(tmp_path / "memory.sqlite3") as store:
+        for triggers in ("duration suffix", "duration suffix seconds"):
+            lesson_id = store.add_lesson(
+                task_id="parse_duration",
+                task_family="code_repair",
+                failure_signature="ValueError on an invalid suffix",
+                trigger_terms=triggers,
+                rule="Validate the duration suffix before multiplying the numeric value.",
+                patch_summary="Reject the suffix.",
+                provenance={"run": "run-1"},
+            )
+            store.set_status("lesson", lesson_id, "verified")
+    assert main(["memory", "consolidate", "--config", str(config), "--json"]) == 0
+    payload = parse_json_output(capsys.readouterr().out)
+    assert payload["merged_lessons"] == 1
+    assert payload["kept_lessons"] == 1
+
+
 def _memory_config(tmp_path: Path) -> Path:
     config = tmp_path / "config.toml"
     config.write_text(

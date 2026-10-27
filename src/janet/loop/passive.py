@@ -35,6 +35,7 @@ from janet.harness.bandit import BanditState
 from janet.llm import LLMClient, LLMError
 from janet.loop.confirm import confirm_variant
 from janet.loop.generation import LoopError, run_generation
+from janet.memory import ProcessMemory, consolidate
 from janet.preempt import Preempted, StopCheck, check
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,7 @@ CALIBRATE_TASKS = 4
 MIN_GENERATION_SECONDS = 1800.0
 MIN_CONFIRM_SECONDS = 300.0
 MIN_CALIBRATE_SECONDS = 180.0
+MIN_CONSOLIDATE_SECONDS = 60.0
 
 
 def _int(raw: dict[str, Any], key: str, default: int = 0) -> int:
@@ -74,6 +76,7 @@ class PassiveState:
     last_confirm_hash: str = ""
     last_confirm_at: str | None = None
     last_calibrate_at: str | None = None
+    last_consolidate_at: str | None = None
     last_error: str = ""
     jobs: dict[str, int] = field(default_factory=dict)
 
@@ -101,6 +104,7 @@ class PassiveState:
             last_confirm_hash=_str(raw, "last_confirm_hash"),
             last_confirm_at=_opt_str(raw, "last_confirm_at"),
             last_calibrate_at=_opt_str(raw, "last_calibrate_at"),
+            last_consolidate_at=_opt_str(raw, "last_consolidate_at"),
             last_error=_str(raw, "last_error"),
             jobs=jobs,
         )
@@ -350,6 +354,24 @@ def _confirm_once(
     )
 
 
+def _consolidate_once(config: Config, state: PassiveState) -> JobOutcome:
+    started = time.monotonic()
+    with ProcessMemory(config.paths.memory.expanduser()) as memory:
+        report = consolidate(memory)
+    state.last_consolidate_at = _now().isoformat()
+    detail = (
+        f"merged {report.merged_lessons}/{report.merged_skills}, "
+        f"promoted {report.promoted}, retired {report.retired}, capped {report.capped}"
+    )
+    return JobOutcome(
+        "consolidate",
+        True,
+        detail,
+        time.monotonic() - started,
+        report.to_dict(),
+    )
+
+
 def _calibrate_once(
     config: Config,
     client: LLMClient,
@@ -417,6 +439,12 @@ def _next_job(
         state.last_calibrate_at, config.daemon.calibrate_interval_hours, now
     ):
         return "calibrate"
+    if (
+        config.memory.enabled
+        and remaining >= MIN_CONSOLIDATE_SECONDS
+        and due(state.last_consolidate_at, config.daemon.memory_consolidate_hours, now)
+    ):
+        return "consolidate"
     return None
 
 
@@ -497,6 +525,8 @@ def run_session(
                     work_root / stamp / "confirm",
                     session_stop,
                 )
+            elif job == "consolidate":
+                outcome = _consolidate_once(config, state)
             else:
                 outcome = _calibrate_once(
                     config,

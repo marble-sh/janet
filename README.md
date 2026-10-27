@@ -21,9 +21,10 @@ calibration, decoupling detection). P5 has started: the process-memory store
 (SQLite + FTS5, status transitions, provenance, retrieval events) and its
 admission gates (task-name, unsafe-text, inert/generic trigger, and test-shape
 checks) and deterministic retrieval (BM25 with hard caps, a prompt-token
-budget, the guard, and a retrieval log) are in place, and a `headroom` task
-family restores difficulty to the dev/anchor/fresh splits. P6 (meta-loop) is
-next. See
+budget, the guard, and a retrieval log) are in place. Consolidation merges
+near-duplicates, promotes well-supported lessons to skill candidates, retires
+stale or failing skills, and enforces the store caps. A `headroom` task family
+restores difficulty to the dev/anchor/fresh splits. P6 (meta-loop) is next. See
 [`docs/plans/plan-rsi-janet-2026-10-23.md`](docs/plans/plan-rsi-janet-2026-10-23.md)
 and [`docs/plans/plan-p5-p6-2026-10-26.md`](docs/plans/plan-p5-p6-2026-10-26.md).
 
@@ -39,6 +40,7 @@ uv run janet bench headroom
 uv run janet bench baseline --limit 4
 uv run janet bench repair --limit 4 --attempts 3 --samples 3
 uv run janet memory stats
+uv run janet memory consolidate
 ```
 
 ## Recursive loop

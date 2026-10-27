@@ -44,7 +44,14 @@ from janet.llm import LLMClient, LLMError
 from janet.loop.confirm import confirm_variant
 from janet.loop.evolution import evolve_dev_suite
 from janet.loop.generation import LoopError, run_loop
-from janet.memory import LessonRecord, MemoryError, MemoryRetriever, ProcessMemory, SkillRecord
+from janet.memory import (
+    LessonRecord,
+    MemoryError,
+    MemoryRetriever,
+    ProcessMemory,
+    SkillRecord,
+    consolidate,
+)
 from janet.preempt import Preempted, file_stop
 from janet.probe import (
     GIB,
@@ -206,6 +213,13 @@ def _parser() -> argparse.ArgumentParser:
     memory_verify = memory_sub.add_parser("verify", help="check SQLite integrity and FTS parity")
     memory_verify.add_argument("--config", default=None)
     memory_verify.add_argument("--json", action="store_true", dest="as_json")
+    memory_consolidate = memory_sub.add_parser(
+        "consolidate", help="merge, promote, retire, and cap memory entries"
+    )
+    memory_consolidate.add_argument("--config", default=None)
+    memory_consolidate.add_argument("--max-lessons", type=int, default=200)
+    memory_consolidate.add_argument("--max-skills", type=int, default=24)
+    memory_consolidate.add_argument("--json", action="store_true", dest="as_json")
 
     publish_cmd = subparsers.add_parser(
         "publish",
@@ -818,6 +832,25 @@ def _cmd_memory(args: argparse.Namespace) -> int:
                     print(f"{content}: content={entry['content']} index={entry['index']} {flag}")
                 print("ok" if payload["ok"] else "FAILED")
             return 0 if payload["ok"] else 1
+        if args.memory_command == "consolidate":
+            report = consolidate(memory, max_lessons=args.max_lessons, max_skills=args.max_skills)
+            payload = report.to_dict()
+            if args.as_json:
+                print(json.dumps(payload, indent=2))
+            else:
+                print(f"run:      {payload['run_id']}")
+                print(
+                    f"merged:   {payload['merged_lessons']} lesson(s), "
+                    f"{payload['merged_skills']} skill(s)"
+                )
+                print(f"promoted: {payload['promoted']}")
+                print(f"retired:  {payload['retired']}; capped: {payload['capped']}")
+                print(
+                    f"kept:     {payload['kept_lessons']} lesson(s), "
+                    f"{payload['kept_skills']} skill(s)"
+                )
+                print(f"db:       {payload['db_bytes']} bytes")
+            return 0 if not payload["over_cap"] else 1
         if args.memory_command == "list":
             rows = _memory_rows(memory, args.kind, args.status, args.limit)
         else:

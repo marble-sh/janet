@@ -107,6 +107,7 @@ class DaemonConfig:
     min_free_disk_gib: float = 3.0
     confirm_interval_hours: float = 24.0
     calibrate_interval_hours: float = 168.0
+    memory_consolidate_hours: float = 6.0
     evolve_per_session: int = 2
     generations_per_session: int = 1
     cpu_quota_percent: int = 300
@@ -268,6 +269,8 @@ def _build_daemon(raw: dict[str, Any]) -> DaemonConfig:
     for name in ("confirm_interval_hours", "calibrate_interval_hours"):
         if getattr(config, name) < 0:
             raise ConfigError(f"daemon.{name} must be >= 0")
+    if config.memory_consolidate_hours < 0:
+        raise ConfigError("daemon.memory_consolidate_hours must be >= 0")
     if config.evolve_per_session < 0 or config.generations_per_session < 0:
         raise ConfigError("daemon per-session job counts must be >= 0")
     if config.cpu_quota_percent <= 0:
