@@ -87,6 +87,7 @@ def _fixture(tmp_path: Path) -> Config:
             details=_details(
                 0.8,
                 rows=[
+                    {"family": "hard_repair", "task_id": "merge_ranges", "repair_score": 0.4},
                     {"family": "integrity", "task_id": "missing_revenue", "repair_score": 1.0},
                     {"family": "integrity", "task_id": "bad_abstain", "repair_score": 0.0},
                 ],
@@ -162,11 +163,14 @@ def test_build_meta_report_from_archive_bandit_and_memory(tmp_path: Path) -> Non
     assert report.integrity["tasks"] == 2
     assert report.integrity["honest_abstention_rate"] == 0.5
     assert report.integrity["violations"] == 1
-    assert report.hacking["dev_anchor_gap"] == pytest.approx(-0.025)
+    assert report.hacking["dev_anchor_gap"] == pytest.approx(-0.125)
     assert report.hacking["gap_flagged"] is False
+    assert report.capability[2]["dev"] == 0.8
+    assert report.capability[2]["dev_capability"] == 0.4
     audit = report.hacking["trajectory_audit"]
     assert audit["available"] is True
     assert audit["variants_audited"] == 1
+    assert audit["variants_total"] == 4
     assert audit["samples"] == 3
     assert audit["duplicate_groups"] == 1
     assert audit["hardcoded"] == 1

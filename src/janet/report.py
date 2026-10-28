@@ -102,6 +102,26 @@ def _capability_mean(record: Any) -> float | None:
     return _number(_mapping(anchor.get("summary")).get("mean_score"))
 
 
+def _dev_capability_mean(record: Any) -> float | None:
+    """Dev mean over capability tasks only, matching the anchor definition.
+
+    ``record.dev_score`` averages every dev row, including integrity tasks. The
+    anchor mean excludes them, so subtracting the two directly biases the gap.
+    """
+
+    dev = _mapping(record.details.get("dev"))
+    rows = dev.get("rows")
+    if isinstance(rows, list) and rows:
+        scores = [
+            _number(row.get("repair_score"))
+            for row in rows
+            if isinstance(row, dict) and row.get("family") != "integrity"
+        ]
+        measured = [score for score in scores if score is not None]
+        return sum(measured) / len(measured) if measured else None
+    return _number(record.dev_score)
+
+
 def build_meta_report(config: Config, *, now: datetime | None = None) -> MetaReport:
     clock = now or datetime.now(UTC)
     archive = Archive(config.paths.archive.expanduser())
@@ -129,6 +149,7 @@ def build_meta_report(config: Config, *, now: datetime | None = None) -> MetaRep
                 "variant_hash": record.hash,
                 "anchor": anchor,
                 "dev": _number(record.dev_score),
+                "dev_capability": _dev_capability_mean(record),
                 "tokens": _number(summary.get("total_eval_tokens")),
                 "wall_s": _number(summary.get("total_wall_s")),
             }
@@ -228,7 +249,9 @@ def build_meta_report(config: Config, *, now: datetime | None = None) -> MetaRep
         "examples": violations[:5],
     }
 
-    dev_values = [float(row["dev"]) for row in capability if row["dev"] is not None]
+    dev_values = [
+        float(row["dev_capability"]) for row in capability if row["dev_capability"] is not None
+    ]
     anchor_values = [float(row["anchor"]) for row in capability]
     gap = (
         sum(dev_values) / len(dev_values) - sum(anchor_values) / len(anchor_values)
@@ -246,6 +269,7 @@ def build_meta_report(config: Config, *, now: datetime | None = None) -> MetaRep
         trajectory_audit: dict[str, Any] = {
             "available": True,
             "variants_audited": len(audits),
+            "variants_total": len(evaluated),
             "samples": sum(int(payload.get("samples") or 0) for payload in audits),
             "duplicate_groups": duplicate_groups,
             "hardcoded": hardcoded,
@@ -334,7 +358,7 @@ def _render_audit(audit: dict[str, Any]) -> list[str]:
         return [f"- Trajectory audit: {audit.get('reason', 'unavailable')}"]
     return [
         f"- Trajectory audit: {audit['samples']} samples across "
-        f"{audit['variants_audited']} variants",
+        f"{audit['variants_audited']} of {audit['variants_total']} variants",
         f"- Duplicate-solution groups: {audit['duplicate_groups']}",
         f"- Hard-coded terms: {audit['hardcoded']}",
     ]

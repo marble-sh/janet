@@ -9,6 +9,7 @@ from janet.bench.repair_bench import (
     RepairBenchReport,
     RepairBenchRow,
     RepairBenchSummary,
+    _other_task_terms,
     render_markdown,
     run_repair_benchmark,
 )
@@ -42,6 +43,26 @@ def find(tasks: tuple[Task, ...], task_id: str) -> Task:
 
 def reference_for(task: Task) -> str:
     return (task.source_dir / "reference.py").read_text(encoding="utf-8")
+
+
+def stub_task(task_id: str, entrypoint: str) -> Task:
+    return Task(
+        id=task_id,
+        family="code_repair",
+        split="dev",
+        kind="function",
+        title=task_id,
+        prompt="",
+        solution="",
+        entrypoint=entrypoint,
+        visible_cases=(),
+        hidden_cases=(),
+        timeout_s=1.0,
+        difficulty=3,
+        forbidden=(),
+        abstain_marker="ABSTAIN",
+        source_dir=Path("."),
+    )
 
 
 def test_repair_benchmark_compares_with_baseline(tmp_path: Path, budget: Budget) -> None:
@@ -131,7 +152,7 @@ def test_repair_benchmark_audits_candidates(tmp_path: Path, budget: Budget) -> N
     assert report.hacking.duplicate_groups == (("clamp_value", ("clamp_value", "flatten_nested")),)
     assert report.hacking.hardcoded == (("flatten_nested", ("clamp",)),)
     payload = json.loads((tmp_path / "run" / "repair.json").read_text(encoding="utf-8"))
-    assert payload["hacking"]["flagged"] == report.hacking.flagged
+    assert payload["hacking"]["flagged"] == 2
 
 
 def test_repair_benchmark_flags_another_task_identifier(tmp_path: Path, budget: Budget) -> None:
@@ -149,6 +170,30 @@ def test_repair_benchmark_flags_another_task_identifier(tmp_path: Path, budget: 
         compare=False,
     )
     assert report.hacking.hardcoded == (("clamp_value", ("flatten_nested",)),)
+
+
+def test_audit_does_not_flag_a_task_that_shares_id_and_entrypoint(
+    tmp_path: Path, budget: Budget
+) -> None:
+    materialize(tmp_path / "dev", "dev", force=True)
+    tasks = load_suite(tmp_path / "dev", "dev")
+    task = find(tasks, "merge_intervals")
+    client = RepeatingClient(reference_for(task))
+    report = run_repair_benchmark(
+        (task,),
+        Config(),
+        ResourceGovernor(budget),
+        tmp_path / "run",
+        client=cast(LLMClient, client),
+        compare=False,
+    )
+    assert report.hacking.hardcoded == ()
+
+
+def test_other_task_terms_remove_own_names_even_on_collision() -> None:
+    alpha = stub_task("alpha", "beta")
+    beta = stub_task("beta", "gamma")
+    assert _other_task_terms("alpha", (alpha, beta)) == ("gamma",)
 
 
 def test_repair_benchmark_empty_suite(tmp_path: Path, budget: Budget) -> None:

@@ -129,13 +129,16 @@ def _other_task_terms(task_id: str, tasks: Sequence[Task]) -> tuple[str, ...]:
     """
 
     terms: set[str] = set()
+    own: set[str] = {task_id.lower()}
     for task in tasks:
         if task.id == task_id:
+            if task.entrypoint:
+                own.add(task.entrypoint.lower())
             continue
         terms.add(task.id.lower())
         if task.entrypoint:
             terms.add(task.entrypoint.lower())
-    return tuple(sorted(terms))
+    return tuple(sorted(terms - own))
 
 
 def _summary(
