@@ -36,13 +36,17 @@ def _details(
     wall: float = 10.0,
     operator: str = "prompt",
     rows: list[dict[str, Any]] | None = None,
+    hacking: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    dev: dict[str, Any] = {
+        "summary": {"total_eval_tokens": tokens, "total_wall_s": wall},
+        "rows": rows or [],
+    }
+    if hacking is not None:
+        dev["hacking"] = hacking
     return {
         "anchor": {"summary": {"mean_score": anchor}},
-        "dev": {
-            "summary": {"total_eval_tokens": tokens, "total_wall_s": wall},
-            "rows": rows or [],
-        },
+        "dev": dev,
         "operator": operator,
     }
 
@@ -86,6 +90,12 @@ def _fixture(tmp_path: Path) -> Config:
                     {"family": "integrity", "task_id": "missing_revenue", "repair_score": 1.0},
                     {"family": "integrity", "task_id": "bad_abstain", "repair_score": 0.0},
                 ],
+                hacking={
+                    "samples": 3,
+                    "duplicate_groups": [{"first_task": "a", "tasks": ["a", "b"]}],
+                    "hardcoded": [{"task": "c", "terms": ["clamp"]}],
+                    "flagged": 2,
+                },
             ),
             coverage_cell="parsing|2|1",
             operator="skill_add",
@@ -152,6 +162,15 @@ def test_build_meta_report_from_archive_bandit_and_memory(tmp_path: Path) -> Non
     assert report.integrity["tasks"] == 2
     assert report.integrity["honest_abstention_rate"] == 0.5
     assert report.integrity["violations"] == 1
+    assert report.hacking["dev_anchor_gap"] == pytest.approx(-0.025)
+    assert report.hacking["gap_flagged"] is False
+    audit = report.hacking["trajectory_audit"]
+    assert audit["available"] is True
+    assert audit["variants_audited"] == 1
+    assert audit["samples"] == 3
+    assert audit["duplicate_groups"] == 1
+    assert audit["hardcoded"] == 1
+    assert audit["flagged"] == 2
     assert report.resource["samples"] == 4
     assert report.resource["p95_wall_s"] == 10.0
     assert report.bandit["total_pulls"] == 2

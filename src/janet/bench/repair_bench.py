@@ -11,6 +11,7 @@ from pathlib import Path
 
 from janet.bench.baseline import BaselineReport, run_baseline
 from janet.config import Config
+from janet.eval.hacking import HackingReport, audit_trajectories
 from janet.eval.prompts import MemorySource
 from janet.eval.repair import RepairAttempt, RepairResult, run_repair
 from janet.eval.task import Task
@@ -89,6 +90,7 @@ class RepairBenchReport:
     rows: tuple[RepairBenchRow, ...]
     summary: RepairBenchSummary
     baseline: BaselineReport | None = None
+    hacking: HackingReport = field(default_factory=lambda: HackingReport(0, (), ()))
     created_at: str = field(
         default_factory=lambda: datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     )
@@ -100,6 +102,7 @@ class RepairBenchReport:
             "split": self.split,
             "created_at": self.created_at,
             "summary": self.summary.to_dict(),
+            "hacking": self.hacking.to_dict(),
             "rows": [row.to_dict() for row in self.rows],
             "baseline_summary": (
                 self.baseline.summary.to_dict() if self.baseline is not None else None
@@ -116,6 +119,23 @@ def _write_attempts(run_dir: Path, repair: RepairResult) -> str:
         path = directory / f"attempt-{attempt.attempt}{suffix}"
         path.write_text(attempt.candidate, encoding="utf-8")
     return str(directory.relative_to(run_dir))
+
+
+def _other_task_terms(task_id: str, tasks: Sequence[Task]) -> tuple[str, ...]:
+    """Identifiers of every task except this one.
+
+    A candidate is expected to define its own entrypoint; only naming another
+    benchmark task or entrypoint is evidence of hard-coding.
+    """
+
+    terms: set[str] = set()
+    for task in tasks:
+        if task.id == task_id:
+            continue
+        terms.add(task.id.lower())
+        if task.entrypoint:
+            terms.add(task.entrypoint.lower())
+    return tuple(sorted(terms))
 
 
 def _summary(
@@ -208,6 +228,7 @@ def run_repair_benchmark(
         baseline_by_id = {row.task_id: row.score for row in baseline.rows}
 
     rows: list[RepairBenchRow] = []
+    samples: list[tuple[str, str]] = []
     started = time.monotonic()
     for task in selected:
         check_stop(stop)
@@ -231,6 +252,9 @@ def run_repair_benchmark(
             progress=on_attempt if progress is not None else None,
         )
         artifact_dir = _write_attempts(run_dir, repair)
+        if not task.is_integrity:
+            final_source = repair.attempts[-1].candidate if repair.attempts else ""
+            samples.append((task.id, final_source))
         baseline_score = baseline_by_id.get(task.id, 0.0)
         rows.append(
             RepairBenchRow(
@@ -261,6 +285,10 @@ def run_repair_benchmark(
         rows=tuple(rows),
         summary=_summary(rows, wall_s),
         baseline=baseline,
+        hacking=audit_trajectories(
+            samples,
+            forbidden_by_task={task.id: _other_task_terms(task.id, selected) for task in selected},
+        ),
     )
     (run_dir / "repair.json").write_text(
         json.dumps(report.to_dict(), indent=2) + "\n", encoding="utf-8"

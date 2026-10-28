@@ -113,6 +113,44 @@ def test_repair_benchmark_only_and_limit(tmp_path: Path, budget: Budget) -> None
     assert report.rows[0].task_id == "clamp_value"
 
 
+def test_repair_benchmark_audits_candidates(tmp_path: Path, budget: Budget) -> None:
+    materialize(tmp_path / "dev", "dev", force=True)
+    tasks = load_suite(tmp_path / "dev", "dev")
+    clamp = find(tasks, "clamp_value")
+    flatten = find(tasks, "flatten_nested")
+    client = RepeatingClient(reference_for(clamp))
+    report = run_repair_benchmark(
+        (clamp, flatten),
+        Config(),
+        ResourceGovernor(budget),
+        tmp_path / "run",
+        client=cast(LLMClient, client),
+        compare=False,
+    )
+    assert report.hacking.samples == 2
+    assert report.hacking.duplicate_groups == (("clamp_value", ("clamp_value", "flatten_nested")),)
+    assert report.hacking.hardcoded == (("flatten_nested", ("clamp",)),)
+    payload = json.loads((tmp_path / "run" / "repair.json").read_text(encoding="utf-8"))
+    assert payload["hacking"]["flagged"] == report.hacking.flagged
+
+
+def test_repair_benchmark_flags_another_task_identifier(tmp_path: Path, budget: Budget) -> None:
+    materialize(tmp_path / "dev", "dev", force=True)
+    tasks = load_suite(tmp_path / "dev", "dev")
+    clamp = find(tasks, "clamp_value")
+    flatten = find(tasks, "flatten_nested")
+    client = RepeatingClient("flatten_nested = 1\n")
+    report = run_repair_benchmark(
+        (clamp, flatten),
+        Config(),
+        ResourceGovernor(budget),
+        tmp_path / "run",
+        client=cast(LLMClient, client),
+        compare=False,
+    )
+    assert report.hacking.hardcoded == (("clamp_value", ("flatten_nested",)),)
+
+
 def test_repair_benchmark_empty_suite(tmp_path: Path, budget: Budget) -> None:
     report = run_repair_benchmark(
         (),
