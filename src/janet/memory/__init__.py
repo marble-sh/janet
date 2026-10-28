@@ -12,6 +12,7 @@ from janet.memory.amnesia import (
     AmnesiaError,
     AmnesiaResult,
     compare_amnesia,
+    poison_verdict,
     run_amnesia,
 )
 from janet.memory.consolidate import (
@@ -50,5 +51,6 @@ __all__ = [
     "admit_skill",
     "compare_amnesia",
     "consolidate",
+    "poison_verdict",
     "run_amnesia",
 ]
