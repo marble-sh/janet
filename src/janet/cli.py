@@ -819,7 +819,15 @@ def _cmd_bench(args: argparse.Namespace) -> int:
         only={part.strip() for part in args.only.split(",")} if args.only else None,
         progress=progress,
     )
-    print(json.dumps(report.summary.to_dict(), indent=2))
+    print(
+        json.dumps(
+            {
+                **report.summary.to_dict(),
+                "metrics": report.metrics.to_dict() if report.metrics is not None else None,
+            },
+            indent=2,
+        )
+    )
     print(f"report: {run_dir / 'baseline.json'}", file=sys.stderr)
     print(f"markdown: {run_dir / 'baseline.md'}", file=sys.stderr)
     return 0

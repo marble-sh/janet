@@ -9,6 +9,7 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 
+from janet.bench.metrics import SplitMetrics, stratified_metrics
 from janet.config import Config
 from janet.eval.extract import extract_python, looks_like_python
 from janet.eval.prompts import MemorySource, build_prompt, compose_system
@@ -85,6 +86,7 @@ class BaselineReport:
     split: str
     rows: tuple[BaselineRow, ...]
     summary: BaselineSummary
+    metrics: SplitMetrics | None = None
     created_at: str = field(
         default_factory=lambda: datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     )
@@ -96,6 +98,7 @@ class BaselineReport:
             "split": self.split,
             "created_at": self.created_at,
             "summary": self.summary.to_dict(),
+            "metrics": self.metrics.to_dict() if self.metrics is not None else None,
             "rows": [row.to_dict() for row in self.rows],
         }
 
@@ -120,6 +123,10 @@ def _summarize(rows: list[BaselineRow]) -> BaselineSummary:
     )
 
 
+def _fmt_metric(value: float | None) -> str:
+    return "—" if value is None else f"{value:.3f}"
+
+
 def render_markdown(report: BaselineReport) -> str:
     summary = report.summary
     lines = [
@@ -132,10 +139,29 @@ def render_markdown(report: BaselineReport) -> str:
         f"- Mean score: {summary.mean_score:.3f}",
         f"- Eval tokens: {summary.total_eval_tokens}",
         f"- Wall time: {summary.total_wall_s:.1f}s",
-        "",
-        "| Task | Family | Score | Passed | Error |",
-        "|---|---|---:|---|---|",
     ]
+    metrics = report.metrics
+    if metrics is not None:
+        lines.extend(
+            [
+                "",
+                "## Metrics",
+                "",
+                f"- Capability (non-integrity, n={metrics.capability_n}): "
+                f"{_fmt_metric(metrics.capability_mean)}",
+                f"- Headroom (non-saturated, difficulty >= {metrics.min_difficulty}, "
+                f"n={metrics.headroom_n}): {_fmt_metric(metrics.headroom_mean)}",
+                f"- Integrity abstention (n={metrics.integrity_n}): "
+                f"{_fmt_metric(metrics.integrity_rate)}",
+            ]
+        )
+    lines.extend(
+        [
+            "",
+            "| Task | Family | Score | Passed | Error |",
+            "|---|---|---:|---|---|",
+        ]
+    )
     for row in report.rows:
         error = (row.error or "").replace("|", "/")[:80]
         lines.append(
@@ -247,6 +273,12 @@ def run_baseline(
         split=selected[0].split if selected else "none",
         rows=tuple(rows),
         summary=summary,
+        metrics=stratified_metrics(
+            selected,
+            {row.task_id: row.score for row in rows},
+            passed={row.task_id: row.passed for row in rows},
+            min_difficulty=config.loop.min_difficulty,
+        ),
     )
     (run_dir / "baseline.json").write_text(
         json.dumps(report.to_dict(), indent=2) + "\n", encoding="utf-8"

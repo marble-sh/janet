@@ -328,6 +328,16 @@ def test_reward_v3_strict_block_and_cost_penalty() -> None:
         strict_blocked=True,
     )
     assert strict == pytest.approx(-0.10)
+    hacking = reward_for(
+        improved=True,
+        error=None,
+        anchor_score=0.8,
+        parent_anchor=0.5,
+        heldout_score=0.5,
+        parent_heldout=0.5,
+        hacking_blocked=True,
+    )
+    assert hacking == pytest.approx(-0.10)
     base = reward_for(
         improved=True,
         error=None,

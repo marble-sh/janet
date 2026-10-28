@@ -22,6 +22,7 @@ from typing import Any
 from janet.bench.baseline import run_baseline
 from janet.bench.repair_bench import RepairBenchReport, run_repair_benchmark
 from janet.config import Config
+from janet.eval.hacking import promotion_blockers
 from janet.eval.prompts import MemoryProvider
 from janet.eval.stats import AlphaSpending, PairedTest, certify, paired_test
 from janet.eval.task import Task
@@ -59,6 +60,8 @@ class GenerationResult:
     operator: str | None = None
     strict_blocked: bool = False
     statistical_blocked: bool = False
+    hacking_blocked: bool = False
+    hacking_flags: tuple[str, ...] = ()
     bandit_arm: str | None = None
     reward: float | None = None
 
@@ -78,6 +81,8 @@ class GenerationResult:
             "operator": self.operator,
             "strict_blocked": self.strict_blocked,
             "statistical_blocked": self.statistical_blocked,
+            "hacking_blocked": self.hacking_blocked,
+            "hacking_flags": list(self.hacking_flags),
             "bandit_arm": self.bandit_arm,
             "reward": self.reward,
             "error": self.error,
@@ -395,6 +400,12 @@ def run_generation(
     if improved and config.loop.statistical_gate and (evidence is None or not evidence.accepted):
         improved = False
         statistical_blocked = True
+    hacking_flags = promotion_blockers(dev_report.hacking)
+    hacking_blocked = improved and bool(hacking_flags)
+    if hacking_blocked:
+        # The verifier still decides correctness; the audit only prevents a
+        # flagged candidate from being accepted or promoted without review.
+        improved = False
     certificate = (
         certify(
             evidence,
@@ -419,6 +430,9 @@ def run_generation(
         "parent_heldout": parent_heldout,
         "strict_blocked": strict_blocked,
         "statistical_blocked": statistical_blocked,
+        "hacking_blocked": hacking_blocked,
+        "hacking_flags": list(hacking_flags),
+        "hacking": dev_report.hacking.to_dict(),
         "paired_test": evidence.to_dict() if evidence is not None else None,
         "evidence_certificate": certificate,
         "memory_on": memory is not None,
@@ -436,6 +450,7 @@ def run_generation(
         heldout_score=heldout,
         parent_heldout=parent_heldout,
         strict_blocked=strict_blocked or statistical_blocked,
+        hacking_blocked=hacking_blocked,
         cost=float(dev_report.summary.total_eval_tokens),
         parent_cost=float(parent_report.summary.total_eval_tokens),
     )
@@ -472,6 +487,8 @@ def run_generation(
         operator=operator,
         strict_blocked=strict_blocked,
         statistical_blocked=statistical_blocked,
+        hacking_blocked=hacking_blocked,
+        hacking_flags=hacking_flags,
         bandit_arm=arm,
         reward=reward,
         error=None,

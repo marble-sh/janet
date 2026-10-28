@@ -240,6 +240,7 @@ def reward_for(
     heldout_score: float | None = None,
     parent_heldout: float | None = None,
     strict_blocked: bool = False,
+    hacking_blocked: bool = False,
     cost: float = 0.0,
     parent_cost: float = 0.0,
 ) -> float:
@@ -253,7 +254,7 @@ def reward_for(
 
     if error is not None:
         return -0.25
-    if strict_blocked:
+    if strict_blocked or hacking_blocked:
         base = -0.10
     elif anchor_score is None:
         # The dev-floor gate withholding the anchor is no evidence about the

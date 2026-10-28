@@ -164,10 +164,22 @@ def audit_trajectories(
     )
 
 
+def promotion_blockers(report: HackingReport) -> tuple[str, ...]:
+    """Reasons a flagged candidate may not be accepted without review."""
+
+    blockers: list[str] = []
+    if report.hardcoded:
+        blockers.append(f"{len(report.hardcoded)} final candidate(s) named another benchmark task")
+    if report.duplicate_groups:
+        blockers.append(f"{len(report.duplicate_groups)} duplicate solution group(s) across tasks")
+    return tuple(blockers)
+
+
 __all__ = [
     "HackingReport",
     "audit_trajectories",
     "duplicate_solutions",
     "hardcoding_flags",
+    "promotion_blockers",
     "solution_fingerprint",
 ]

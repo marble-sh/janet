@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 from janet.eval.hacking import (
+    HackingReport,
     audit_trajectories,
     duplicate_solutions,
     hardcoding_flags,
+    promotion_blockers,
     solution_fingerprint,
 )
 
@@ -83,3 +85,17 @@ def test_audit_trajectories_skips_empty_sources() -> None:
     assert report.samples == 0
     assert report.duplicate_groups == ()
     assert report.hardcoded == ()
+
+
+def test_promotion_blockers_explain_each_flag() -> None:
+    clean = HackingReport(2, (), ())
+    assert promotion_blockers(clean) == ()
+    flagged = HackingReport(
+        3,
+        (("a", ("a", "b")),),
+        (("c", ("clamp",)),),
+    )
+    assert promotion_blockers(flagged) == (
+        "1 final candidate(s) named another benchmark task",
+        "1 duplicate solution group(s) across tasks",
+    )

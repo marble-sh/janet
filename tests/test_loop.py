@@ -139,6 +139,44 @@ def test_run_generation_promotes_an_improvement(tmp_path: Path, budget: Budget) 
         archive.close()
 
 
+def test_hacking_audit_blocks_acceptance(
+    tmp_path: Path, budget: Budget, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    dev_task, anchor_task = _tasks(tmp_path)
+    config = _config(tmp_path, promote=True)
+    archive = Archive(config.paths.archive)
+    try:
+        archive.ensure_seed(SEED_HARNESS, dev_score=0.0, anchor_score=0.0)
+        client = FakeLoopClient(reference_for(dev_task))
+        monkeypatch.setattr(
+            "janet.loop.generation.promotion_blockers",
+            lambda _report: ("duplicate solution group(s) across tasks",),
+        )
+        result = run_generation(
+            archive,
+            cast(LLMClient, client),
+            ResourceGovernor(budget),
+            config,
+            tmp_path / "run",
+            (dev_task,),
+            (anchor_task,),
+            generation=1,
+            limit=1,
+        )
+        assert result.hacking_blocked
+        assert result.hacking_flags == ("duplicate solution group(s) across tasks",)
+        assert not result.improved
+        assert not result.promoted
+        assert result.reward == pytest.approx(-0.10)
+        record = archive.get(result.candidate_hash or "")
+        assert record is not None
+        assert record.status == "candidate"
+        assert record.details["hacking_blocked"] is True
+        assert record.details["hacking_flags"] == ["duplicate solution group(s) across tasks"]
+    finally:
+        archive.close()
+
+
 def test_run_generation_archives_a_non_improvement(tmp_path: Path, budget: Budget) -> None:
     dev_task, anchor_task = _tasks(tmp_path)
     config = _config(tmp_path, promote=True)
