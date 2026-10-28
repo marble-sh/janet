@@ -45,12 +45,14 @@ from janet.loop.confirm import confirm_variant
 from janet.loop.evolution import evolve_dev_suite
 from janet.loop.generation import LoopError, run_loop
 from janet.memory import (
+    AmnesiaError,
     LessonRecord,
     MemoryError,
     MemoryPolicyProvider,
     ProcessMemory,
     SkillRecord,
     consolidate,
+    run_amnesia,
 )
 from janet.preempt import Preempted, file_stop
 from janet.probe import (
@@ -221,6 +223,17 @@ def _parser() -> argparse.ArgumentParser:
     memory_consolidate.add_argument("--max-lessons", type=int, default=200)
     memory_consolidate.add_argument("--max-skills", type=int, default=24)
     memory_consolidate.add_argument("--json", action="store_true", dest="as_json")
+    memory_amnesia = memory_sub.add_parser(
+        "amnesia", help="compare memory on/off on a hidden split"
+    )
+    memory_amnesia.add_argument("--root", required=True, help="hidden split root")
+    memory_amnesia.add_argument("--config", default=None)
+    memory_amnesia.add_argument("--attempts", type=int, default=2)
+    memory_amnesia.add_argument("--samples", type=int, default=1)
+    memory_amnesia.add_argument("--limit", type=int, default=None)
+    memory_amnesia.add_argument("--min-gain", type=float, default=0.05)
+    memory_amnesia.add_argument("--no-poison", action="store_true")
+    memory_amnesia.add_argument("--json", action="store_true", dest="as_json")
 
     publish_cmd = subparsers.add_parser(
         "publish",
@@ -814,8 +827,11 @@ def _cmd_bench(args: argparse.Namespace) -> int:
 
 def _cmd_memory(args: argparse.Namespace) -> int:
     config = _load(args.config)
-    if getattr(args, "limit", 1) < 1:
+    limit = getattr(args, "limit", 1)
+    if limit is not None and limit < 1:
         raise ConfigError("--limit must be >= 1")
+    if args.memory_command == "amnesia":
+        return _cmd_memory_amnesia(config, args)
     with ProcessMemory(config.paths.memory.expanduser()) as memory:
         if args.memory_command == "stats":
             payload = memory.stats()
@@ -879,6 +895,58 @@ def _cmd_memory(args: argparse.Namespace) -> int:
                 f"{str(row['rule'])[:80]}"
             )
     return 0
+
+
+def _cmd_memory_amnesia(config: Config, args: argparse.Namespace) -> int:
+    root = Path(args.root).expanduser()
+    tasks = load_suite(root, "fresh")
+    if args.limit is not None:
+        if args.limit < 1:
+            raise ConfigError("--limit must be >= 1")
+        tasks = tasks[: args.limit]
+    if args.attempts < 1 or args.samples < 1:
+        raise ConfigError("--attempts and --samples must be >= 1")
+    if not 0.0 <= args.min_gain <= 1.0:
+        raise ConfigError("--min-gain must be in [0, 1]")
+    _machine, budget = _budget(config)
+    governor = ResourceGovernor(budget)
+    client = _local_client(config)
+    run_dir = config.paths.runs.expanduser() / _run_id("amnesia", None)
+    result = run_amnesia(
+        tasks,
+        config,
+        governor,
+        run_dir,
+        client=client,
+        forbidden=forbidden_terms(tasks),
+        attempts=args.attempts,
+        samples=args.samples,
+        min_gain=args.min_gain,
+        poison=not args.no_poison,
+    )
+    payload = result.to_dict()
+    path = config.paths.runs.expanduser() / "memory-amnesia.json"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8")
+    if args.as_json:
+        print(json.dumps(payload, indent=2, default=str))
+    else:
+        comparison = result.comparison
+        print(
+            f"tasks: {comparison.tasks}  off={comparison.off_mean:.3f} "
+            f"on={comparison.on_mean:.3f} gain={comparison.gain:+.3f}"
+        )
+        print(
+            f"CI: [{comparison.ci_low:.3f}, {comparison.ci_high:.3f}]  "
+            f"wins={comparison.wins} losses={comparison.losses} ties={comparison.ties}"
+        )
+        print(
+            f"poison quarantined: {result.poison.get('obvious_quarantined')} "
+            f"harmed: {result.poison.get('harmed')}"
+        )
+        print("PASS" if payload["passes"] else "FAIL")
+    print(f"report: {path}", file=sys.stderr)
+    return 0 if payload["passes"] else 1
 
 
 def _memory_rows(
@@ -994,6 +1062,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         PublishError,
         MemoryError,
         HeadroomError,
+        AmnesiaError,
     ) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 2

@@ -7,6 +7,13 @@ from janet.memory.admit import (
     admit_lesson,
     admit_skill,
 )
+from janet.memory.amnesia import (
+    AmnesiaComparison,
+    AmnesiaError,
+    AmnesiaResult,
+    compare_amnesia,
+    run_amnesia,
+)
 from janet.memory.consolidate import (
     CONSOLIDATION_VERSION,
     ConsolidationReport,
@@ -28,6 +35,9 @@ __all__ = [
     "SCHEMA_VERSION",
     "AdmissionDecision",
     "AdmissionError",
+    "AmnesiaComparison",
+    "AmnesiaError",
+    "AmnesiaResult",
     "ConsolidationReport",
     "EvidenceRecord",
     "LessonRecord",
@@ -38,5 +48,7 @@ __all__ = [
     "SkillRecord",
     "admit_lesson",
     "admit_skill",
+    "compare_amnesia",
     "consolidate",
+    "run_amnesia",
 ]
