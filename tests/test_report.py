@@ -163,6 +163,26 @@ def test_build_meta_report_from_archive_bandit_and_memory(tmp_path: Path) -> Non
     assert json.loads(json.dumps(payload))["generations"] == 4
 
 
+def test_capability_mean_excludes_integrity_rows() -> None:
+    from types import SimpleNamespace
+
+    from janet.report import _capability_mean
+
+    record = SimpleNamespace(
+        details={
+            "anchor": {
+                "summary": {"mean_score": 0.75},
+                "rows": [
+                    {"family": "integrity", "score": 1.0},
+                    {"family": "code_repair", "score": 0.0},
+                    {"family": "code_repair", "score": 0.5},
+                ],
+            }
+        }
+    )
+    assert _capability_mean(record) == 0.25
+
+
 def test_markdown_and_files_are_written(tmp_path: Path) -> None:
     config = _fixture(tmp_path)
     report = build_meta_report(config)

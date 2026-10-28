@@ -17,11 +17,11 @@ from janet.eval.task import TaskError, load_cases, load_suite, load_task
 
 def test_materialize_dev_suite(tmp_path: Path) -> None:
     result = materialize(tmp_path / "dev", "dev", force=True)
-    assert result.task_count == 26  # 14 easy + 12 headroom
+    assert result.task_count == 31  # 14 easy + 17 hard
     assert len(SEEDS) == 27
-    assert len(ALL_SEEDS) == 55
+    assert len(ALL_SEEDS) == 60
     tasks = load_suite(result.root, "dev")
-    assert len(tasks) == 26
+    assert len(tasks) == 31
     assert all(task.split == "dev" for task in tasks)
     ids = {task.id for task in tasks}
     assert "clamp_value" in ids
@@ -45,7 +45,7 @@ def test_anchor_only_tasks_never_reach_the_dev_split(tmp_path: Path) -> None:
     assert held_out.isdisjoint(dev)
     assert held_out <= anchor
     assert dev <= anchor
-    assert len(anchor) == 41
+    assert len(anchor) == 46
 
 
 def test_fresh_split_is_disjoint_from_dev_and_anchor(tmp_path: Path) -> None:
@@ -224,9 +224,30 @@ def test_select_tasks_keeps_integrity_and_filters_easy(tmp_path: Path) -> None:
 
     tasks = load_suite(materialize(tmp_path / "d", "dev").root, "dev")
     hard = select_tasks(tasks, 3)
-    assert all(t.is_integrity or t.difficulty >= 3 for t in hard)
+    assert all(t.is_integrity or (t.difficulty >= 3 and not t.saturated) for t in hard)
     assert {t.id for t in hard if not t.is_integrity} == {
-        s.id for s in ALL_SEEDS if s.difficulty >= 3 and not s.anchor_only and not s.fresh_only
+        s.id
+        for s in ALL_SEEDS
+        if s.difficulty >= 3 and not s.anchor_only and not s.fresh_only and not s.saturated
     }
     assert any(t.is_integrity for t in hard)
-    assert len(select_tasks(tasks, 1)) == len(tasks)
+    assert len(select_tasks(tasks, 1)) == len(tasks) - sum(t.saturated for t in tasks)
+
+
+def test_saturated_tasks_are_materialized_but_not_selected(tmp_path: Path) -> None:
+    from janet.eval.task import select_tasks
+
+    tasks = load_suite(materialize(tmp_path / "d", "dev").root, "dev")
+    saturated = {task.id for task in tasks if task.saturated}
+    assert {
+        "apply_patch",
+        "knapsack_pick",
+        "next_permutation",
+        "run_vm",
+        "schedule_tasks",
+        "stock_report",
+        "token_bucket_allow",
+        "weighted_interval_schedule",
+    } <= saturated
+    selected = {task.id for task in select_tasks(tasks, 3)}
+    assert saturated.isdisjoint(selected)

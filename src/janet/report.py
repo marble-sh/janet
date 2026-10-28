@@ -83,10 +83,21 @@ def _dev_summary(record: Any) -> dict[str, Any]:
     return _mapping(_mapping(record.details.get("dev")).get("summary"))
 
 
-def _anchor_mean(record: Any) -> float | None:
-    return _number(
-        _mapping(_mapping(record.details.get("anchor")).get("summary")).get("mean_score")
-    )
+def _capability_mean(record: Any) -> float | None:
+    """Anchor mean over capability tasks only; integrity is reported separately."""
+
+    anchor = _mapping(record.details.get("anchor"))
+    rows = anchor.get("rows")
+    if isinstance(rows, list):
+        scores = [
+            _number(row.get("score"))
+            for row in rows
+            if isinstance(row, dict) and row.get("family") != "integrity"
+        ]
+        measured = [score for score in scores if score is not None]
+        if measured:
+            return sum(measured) / len(measured)
+    return _number(_mapping(anchor.get("summary")).get("mean_score"))
 
 
 def build_meta_report(config: Config, *, now: datetime | None = None) -> MetaReport:
@@ -106,7 +117,7 @@ def build_meta_report(config: Config, *, now: datetime | None = None) -> MetaRep
 
     capability: list[dict[str, Any]] = []
     for generation, record in enumerate(evaluated, start=1):
-        anchor = _anchor_mean(record)
+        anchor = _capability_mean(record)
         if anchor is None:
             continue
         summary = _dev_summary(record)

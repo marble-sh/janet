@@ -80,6 +80,7 @@ def _task_toml(seed: TaskSeed, split: str) -> str:
         [
             f"timeout_s = {_toml_value(float(seed.timeout_s))}",
             f"difficulty = {_toml_value(seed.difficulty)}",
+            f"saturated = {_toml_value(seed.saturated)}",
             'abstain_marker = "ABSTAIN"',
             f"forbidden = {_toml_value(list(seed.forbidden))}",
         ]

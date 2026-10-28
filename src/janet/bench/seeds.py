@@ -35,6 +35,9 @@ class TaskSeed:
     difficulty: int = 1
     anchor_only: bool = False
     fresh_only: bool = False
+    # Measured one-shot 1.0: keep it in the split for coverage, exclude it from
+    # selection so the loop is not scored on a saturated task.
+    saturated: bool = False
 
 
 _CODE_REPAIR: tuple[TaskSeed, ...] = (

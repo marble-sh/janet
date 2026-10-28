@@ -30,6 +30,7 @@ def _task(
     visible: tuple[CaseSeed, ...],
     anchor: tuple[CaseSeed, ...],
     difficulty: int = 3,
+    saturated: bool = False,
 ) -> TaskSeed:
     return TaskSeed(
         id=id,
@@ -42,6 +43,7 @@ def _task(
         visible=visible,
         anchor=anchor,
         difficulty=difficulty,
+        saturated=saturated,
         timeout_s=20.0,
     )
 
@@ -435,6 +437,7 @@ def topo_sort(n, edges):
             _c([1, 1, 1]),
             _c([2, 3, 1, 3]),
         ),
+        saturated=True,
     ),
     _task(
         "date_add_days",
@@ -603,6 +606,7 @@ def json_path_get(obj, path):
             _c([1, 2, 2], [2, 3, 3], 4),
             _c([1, 1, 1], [1, 1, 1], 3),
         ),
+        saturated=True,
     ),
     _task(
         "order_totals",
@@ -787,6 +791,7 @@ def stock_report(events):
             _c([["out", "a", 2], ["out", "a", 3]]),
             _c([["in", "a", 2], ["adjust", "a", 0], ["in", "a", 1]]),
         ),
+        saturated=True,
     ),
     _task(
         "max_circular_sum",
@@ -949,6 +954,7 @@ def min_window(s, t):
             _c([], [[0, ["x"], ["y"]]], err="ValueError"),
         ),
         difficulty=5,
+        saturated=True,
     ),
     _task(
         "ledger_replay",

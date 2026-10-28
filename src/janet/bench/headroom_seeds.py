@@ -79,6 +79,7 @@ _ALL: tuple[TaskSeed, ...] = (
             _c([[1, 2, 2], [2, 3, 1], [1, 3, 3]]),
         ),
         difficulty=4,
+        saturated=True,
         timeout_s=20.0,
     ),
     TaskSeed(
@@ -131,6 +132,7 @@ _ALL: tuple[TaskSeed, ...] = (
             _c(1, 1.0, [[-1, 0]], err="ValueError"),
         ),
         difficulty=4,
+        saturated=True,
         timeout_s=20.0,
     ),
     TaskSeed(

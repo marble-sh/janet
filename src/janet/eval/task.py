@@ -45,6 +45,7 @@ class Task:
     forbidden: tuple[str, ...]
     abstain_marker: str
     source_dir: Path
+    saturated: bool = False
 
     @property
     def cases(self) -> tuple[Case, ...]:
@@ -143,6 +144,9 @@ def load_task(directory: Path) -> Task:
     abstain_marker = str(table.get("abstain_marker", "ABSTAIN"))
     if not abstain_marker:
         raise TaskError(f"{manifest}: abstain_marker must be non-empty")
+    saturated_raw = table.get("saturated", False)
+    if not isinstance(saturated_raw, bool):
+        raise TaskError(f"{manifest}: saturated must be a boolean")
 
     visible = load_cases(directory / "visible_cases.json")
     hidden = load_cases(directory / "hidden_cases.json")
@@ -165,6 +169,7 @@ def load_task(directory: Path) -> Task:
         forbidden=tuple(forbidden_raw),
         abstain_marker=abstain_marker,
         source_dir=directory,
+        saturated=saturated_raw,
     )
 
 
@@ -190,7 +195,12 @@ def load_suite(root: Path, split: str | None = None) -> tuple[Task, ...]:
 def select_tasks(tasks: tuple[Task, ...], min_difficulty: int) -> tuple[Task, ...]:
     """Keep tasks at or above a difficulty; integrity tasks are always kept.
 
-    Saturated easy tasks add no selection signal but integrity tasks guard honesty.
+    Saturated tasks are measured one-shot at 1.0; they stay in the split for
+    coverage but add no selection signal, so the loop does not select on them.
     """
 
-    return tuple(t for t in tasks if t.is_integrity or t.difficulty >= min_difficulty)
+    return tuple(
+        task
+        for task in tasks
+        if task.is_integrity or (task.difficulty >= min_difficulty and not task.saturated)
+    )
