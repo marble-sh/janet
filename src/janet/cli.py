@@ -228,6 +228,8 @@ def _parser() -> argparse.ArgumentParser:
     )
     memory_amnesia.add_argument("--root", required=True, help="hidden split root")
     memory_amnesia.add_argument("--config", default=None)
+    memory_amnesia.add_argument("--memory-path", default=None, help="SQLite store to use")
+    memory_amnesia.add_argument("--run-id", default=None)
     memory_amnesia.add_argument("--attempts", type=int, default=2)
     memory_amnesia.add_argument("--samples", type=int, default=1)
     memory_amnesia.add_argument("--limit", type=int, default=None)
@@ -919,13 +921,14 @@ def _cmd_memory_amnesia(config: Config, args: argparse.Namespace) -> int:
     _machine, budget = _budget(config)
     governor = ResourceGovernor(budget)
     client = _local_client(config)
-    run_dir = config.paths.runs.expanduser() / _run_id("amnesia", None)
+    run_dir = config.paths.runs.expanduser() / _run_id("amnesia", args.run_id)
     result = run_amnesia(
         tasks,
         config,
         governor,
         run_dir,
         client=client,
+        memory_path=Path(args.memory_path).expanduser() if args.memory_path else None,
         forbidden=forbidden_terms(tasks),
         attempts=args.attempts,
         samples=args.samples,
@@ -933,9 +936,11 @@ def _cmd_memory_amnesia(config: Config, args: argparse.Namespace) -> int:
         poison=not args.no_poison,
     )
     payload = result.to_dict()
+    encoded = json.dumps(payload, indent=2, default=str) + "\n"
+    (run_dir / "amnesia.json").write_text(encoded, encoding="utf-8")
     path = config.paths.runs.expanduser() / "memory-amnesia.json"
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, indent=2, default=str) + "\n", encoding="utf-8")
+    path.write_text(encoded, encoding="utf-8")
     if args.as_json:
         print(json.dumps(payload, indent=2, default=str))
     else:

@@ -1,0 +1,31 @@
+{
+  "protocol": "clean-v1",
+  "status": "pre_registered_pending_human_signature",
+  "created_at": "2026-10-31T15:04:20Z",
+  "memory_source": "runs/memory.sqlite3",
+  "memory_frozen_db_sha256": "617a8ef8532621de166676dc3e929364de60dabda9d412f15af45b5c1f02ef1a",
+  "memory_snapshot_sha256": "a63b7fcd3daaf6fd9714488edf8a7927e790cda268327ed367f44ce2ed38c420",
+  "split_source": "~/.local/share/janet/fresh",
+  "split_source_commit": "477e949",
+  "split_manifest_sha256": "f36224238f2d75941336cf12f6f00f4798e608252cdd1aaaef3efa814de1e3b3",
+  "tasks": 12,
+  "ids": [
+    "calc_expr",
+    "capitalize_words",
+    "divide_all",
+    "first_unique_char",
+    "intersect_sorted",
+    "lru_hits",
+    "max_circular_sum",
+    "parse_csv_row",
+    "running_max",
+    "subtract_intervals",
+    "to_binary",
+    "wrap_text"
+  ],
+  "families": [
+    "code_repair",
+    "hard_repair"
+  ],
+  "note": "Hashes recorded before the clean run. Memory and split are frozen; the human signature is still required before any promotion decision."
+}
